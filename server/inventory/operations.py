@@ -232,6 +232,19 @@ def quantity_value(summary):
     return None if summary["unknown"] and summary["total"] == 0 else summary["total"]
 
 
+def stock_out(inv, row, detail=False):
+    """A stock row for output, with the location's place (and name in details)."""
+    location = model.find_location(inv, row["location"])
+    out = {"location": row["location"]}
+    if detail:
+        out["location_name"] = location["name"] if location else None
+        out["place"] = location["place"] or None if location else None
+    elif location and location["place"]:
+        out["place"] = location["place"]
+    out["qty"] = row["qty"]
+    return out
+
+
 def part_summary(ctx, inv, part):
     summary = model.stock_summary(part)
     out = {
@@ -240,7 +253,7 @@ def part_summary(ctx, inv, part):
         "category": part["category"],
         "quantity": quantity_value(summary),
         "quantity_text": summary["text"],
-        "stock": [{"location": row["location"], "qty": row["qty"]} for row in part["stock"]],
+        "stock": [stock_out(inv, row) for row in part["stock"]],
         "specs": part["specs"],
     }
     if part["tags"]:
@@ -283,10 +296,7 @@ def part_detail(ctx, inv, part):
         "createdAt": part["createdAt"],
         "updatedAt": part["updatedAt"],
     }
-    for row in part["stock"]:
-        location = model.find_location(inv, row["location"])
-        out["stock"].append({"location": row["location"], "location_name": location["name"] if location else None,
-                             "qty": row["qty"]})
+    out["stock"] = [stock_out(inv, row, detail=True) for row in part["stock"]]
     for image in part["images"]:
         entry = {"src": image["src"], "url": ctx.file_url(image["src"])}
         if image.get("thumb"):
@@ -337,15 +347,17 @@ NEW_PART = obj({
 
 @operation("get_overview", "Inventory overview", "GET", "/api/overview", obj({}), read_only=True)
 def get_overview(ctx, args):
-    """Counts of parts per category and location, stock status and recently changed parts. A good first call."""
+    """Counts of parts per category, place and location, stock status and recently changed parts. A good first call."""
     inv = ctx.store.load()
     parts = inv["parts"]
-    per_category, per_location, unassigned = {}, {}, 0
+    per_category, per_location, per_place, unassigned = {}, {}, {}, 0
     for part in parts:
         per_category[part["category"]] = per_category.get(part["category"], 0) + 1
         codes = {row["location"] for row in part["stock"] if row["location"]}
         for code in codes:
             per_location[code] = per_location.get(code, 0) + 1
+        for place in {model.place_of(inv, code) for code in codes} - {""}:
+            per_place[place] = per_place.get(place, 0) + 1
         if any(row["location"] is None for row in part["stock"]) or not part["stock"]:
             unassigned += 1
     summaries = [model.stock_summary(part) for part in parts]
@@ -360,8 +372,10 @@ def get_overview(ctx, args):
         "unassigned_or_unstored": unassigned,
         "categories": [{"id": cat["id"], "name": cat["name"], "parts": per_category.get(cat["id"], 0)}
                        for cat in inv["categories"]],
-        "locations": [{"code": loc["code"], "name": loc["name"], "parts": per_location.get(loc["code"], 0)}
-                      for loc in inv["locations"]],
+        "places": [{"name": place, "locations": sum(1 for loc in inv["locations"] if loc["place"] == place),
+                    "parts": per_place.get(place, 0)} for place in model.places(inv)],
+        "locations": [{"code": loc["code"], "name": loc["name"], "place": loc["place"] or None,
+                       "parts": per_location.get(loc["code"], 0)} for loc in inv["locations"]],
         "recently_changed": [{"id": part["id"], "name": part["name"], "updatedAt": part["updatedAt"]}
                              for part in recent],
         "app_url": ctx.base_url,
@@ -370,13 +384,14 @@ def get_overview(ctx, args):
 
 @operation("get_schema", "Categories, properties and locations", "GET", "/api/schema", obj({}), read_only=True)
 def get_schema(ctx, args):
-    """Category ids, property definitions (key, label, type, unit, suggested values) and location codes.
-    Reuse these when adding or updating parts."""
+    """Category ids, property definitions (key, label, type, unit, suggested values), location codes and the
+    places the locations belong to. Reuse these when adding or updating parts."""
     inv = ctx.store.load()
     return {
         "categories": inv["categories"],
         "fields": inv["fields"],
         "locations": inv["locations"],
+        "places": model.places(inv),
         "field_types": {
             "text": "free text", "number": "number (unit in 'unit')", "select": "one value, suggestions in 'options'",
             "multi": "list of values, suggestions in 'options'", "bool": "true / false",
@@ -437,6 +452,14 @@ def _query_parts(ctx, inv, args):
                 raise InventoryError(f'Unknown location "{location}". Known: {known_ids(inv["locations"], "code")}.',
                                      400, "unknown_location")
             parts = [part for part in parts if any(row["location"] == found["code"] for row in part["stock"])]
+    place = arg_str(args, "place")
+    if place:
+        found_place = model.find_place(inv, place)
+        if not found_place:
+            known = ", ".join(model.places(inv)) or "none yet (set 'place' with upsert_location)"
+            raise InventoryError(f'Unknown place "{place}". Known: {known}.', 400, "unknown_place")
+        codes = {loc["code"] for loc in inv["locations"] if loc["place"] == found_place}
+        parts = [part for part in parts if any(row["location"] in codes for row in part["stock"])]
     stocked = arg_bool(args, "in_stock")
     if stocked is not None:
         parts = [part for part in parts if model.in_stock(part) == stocked]
@@ -467,6 +490,7 @@ def _query_parts(ctx, inv, args):
     "query": string("Words that must all appear (name, description, notes, tags, property values, locations)."),
     "category": string("Category id, e.g. dev-boards."),
     "location": string("Location code, or \"none\" for parts with unassigned stock."),
+    "place": string("Place name from get_schema (e.g. Place 1): only parts with stock in its locations."),
     "in_stock": {"type": "boolean", "description": "true = only parts with stock, false = only out of stock."},
     "tags": {"type": "array", "items": {"type": "string"}, "description": "Parts having any of these tags."},
     "specs": {
@@ -479,10 +503,10 @@ def _query_parts(ctx, inv, args):
     "sort": {"type": "string", "enum": list(SORTS), "description": "Default: name."},
     "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Default 50."},
     "offset": {"type": "integer", "minimum": 0},
-}), read_only=True, query=("query", "category", "location", "in_stock", "tags", "sort", "limit", "offset"))
+}), read_only=True, query=("query", "category", "location", "place", "in_stock", "tags", "sort", "limit", "offset"))
 def search_parts(ctx, args):
-    """Finds parts by text, category, location, stock and property values (e.g. boards with Thread or
-    Bluetooth 5.x). Returns compact summaries; use get_part for all details."""
+    """Finds parts by text, category, place, location, stock and property values (e.g. boards with Thread or
+    Bluetooth 5.x). Returns compact summaries (stock rows name their place); use get_part for all details."""
     inv = ctx.store.load()
     parts = _query_parts(ctx, inv, args)
     limit = int(arg_number(args, "limit") or 50)
@@ -858,15 +882,23 @@ def add_image(ctx, args):
 
 # --------------------------------------------------------------------------- locations, fields, categories
 
+def _join_place(inv, place, location):
+    """A place written in another case joins the existing place of that name."""
+    lower = place.lower()
+    others = (loc["place"] for loc in inv["locations"] if loc is not location and loc["place"])
+    return next((name for name in others if name.lower() == lower), place) if place else ""
+
+
 @operation("upsert_location", "Create or edit a location", "PUT", "/api/locations/{code}", obj({
     "code": string("Location code, e.g. A1 (the label on the box)."),
     "name": string("Descriptive name, e.g. Blue box."),
+    "place": string("Place the location is in, e.g. Place 1 (see get_schema places); \"\" = none."),
     "color": string("#rrggbb color of the box."),
     "notes": string("Where it is, what goes in it."),
     "rename_to": string("New code; all parts are updated."),
 }, required=["code"]), idempotent=True)
 def upsert_location(ctx, args):
-    """Creates a location (box, drawer, shelf) or changes its name, color, notes or code."""
+    """Creates a location (box, drawer, shelf) or changes its name, place, color, notes or code."""
     code = arg_str(args, "code", required=True)
     rename_to = arg_str(args, "rename_to")
 
@@ -875,18 +907,21 @@ def upsert_location(ctx, args):
         if location is None:
             used = {loc["color"] for loc in inv["locations"]}
             location = model.normalize_location({
-                "code": code, "name": args.get("name") or code,
+                "code": code, "name": args.get("name") or code, "place": args.get("place") or "",
                 "color": args.get("color") or next((c for c in LOCATION_COLORS if c not in used), LOCATION_COLORS[0]),
                 "notes": args.get("notes") or "",
             })
             if not location:
                 raise InventoryError("Invalid location code.", 400, "invalid_arguments")
+            location["place"] = _join_place(inv, location["place"], location)
             inv["locations"].append(location)
             created = True
         else:
             created = False
             if "name" in args:
                 location["name"] = str(args.get("name") or "").strip() or location["code"]
+            if "place" in args:
+                location["place"] = _join_place(inv, model.normalize_place(args.get("place")), location)
             if "color" in args:
                 location["color"] = model.normalize_color(args.get("color"))
             if "notes" in args:

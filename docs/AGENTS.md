@@ -63,8 +63,8 @@ the web app uses in file mode):
 
 | Tool (MCP) | REST | Purpose |
 | --- | --- | --- |
-| `get_overview` | `GET /api/overview` | Counts per category and location, stock status, recent changes |
-| `get_schema` | `GET /api/schema` | Categories, properties (key, label, type, unit, options), locations |
+| `get_overview` | `GET /api/overview` | Counts per category, place and location, stock status, recent changes |
+| `get_schema` | `GET /api/schema` | Categories, properties (key, label, type, unit, options), locations, places |
 | `search_parts` | `GET /api/parts` | Search and filter; returns summaries |
 | `get_part` | `GET /api/parts/{id}` | Full details, property labels, photo URLs (MCP: optionally the photo) |
 | `add_parts` | `POST /api/parts` | Add up to 200 parts; `image_urls` are downloaded |
@@ -74,7 +74,7 @@ the web app uses in file mode):
 | `set_stock` | `PUT /api/parts/{id}/stock` | Replace all `{location, qty}` rows |
 | `move_stock` | `POST /api/parts/{id}/stock/move` | Move pieces between locations |
 | `add_image` | `POST /api/parts/{id}/images` | Photo from `url` or `data_base64` (REST also: raw image body) |
-| `upsert_location` | `PUT /api/locations/{code}` | Create or edit a box; `rename_to` updates all parts |
+| `upsert_location` | `PUT /api/locations/{code}` | Create or edit a box (name, `place`, color, notes); `rename_to` updates all parts |
 | `delete_location` | `DELETE /api/locations/{code}?move_to=` | Remove a box, moving its stock |
 | `upsert_field` | `POST /api/fields` | Define a property and add it to categories |
 | `upsert_category` | `POST /api/categories` | Create or edit a category |
@@ -85,7 +85,8 @@ Errors are returned as MCP tool results with `isError: true`, and by REST as
 ### Searching
 
 `search_parts` arguments: `query` (all words must match name, description, notes, tags, property
-values or locations), `category`, `location` (`"none"` = unassigned), `in_stock`, `tags`, `sort`
+values or locations), `category`, `location` (`"none"` = unassigned), `place` (parts with stock in
+that place's locations), `in_stock`, `tags`, `sort`
 (`name`, `updated`, `created`, `quantity`), `limit`, `offset` and `specs` — property conditions that
 must all match:
 
@@ -99,6 +100,15 @@ must all match:
 
 REST uses query parameters: `?query=esp32&category=dev-boards&spec.thread=1.3,1.4&spec.bluetooth=5.0,5.3`
 and `spec.diagonal.min=1`.
+
+### Places
+
+Locations can belong to a place, e.g. Place 1 and Place 2, or the stock of an e-shop (`place` on
+the location, `""` = none; `get_schema` lists the places). `search_parts` with `place` returns
+parts that have stock there, and stock rows in results name the place of their location, so "how
+many are in Place 2" is the sum of the rows with that place. Put a box into a place with
+`upsert_location {"code": "N1", "place": "Place 2"}`; a name differing only in case joins the
+existing place.
 
 ### Adding parts
 

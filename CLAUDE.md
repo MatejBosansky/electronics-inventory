@@ -48,7 +48,7 @@ Open http://localhost:8765 and try the change on desktop and mobile widths, ligh
 Prefer the MCP tools (or the REST API) over editing `inventory.json` by hand — they validate input,
 download and resize photos, keep snapshots and never lose concurrent changes. Usual flow:
 `get_schema` → `search_parts` (avoid duplicates) → `add_parts` / `update_part` / `adjust_stock`.
-Reuse existing category ids, property keys and location codes. See `docs/AGENTS.md`.
+Reuse existing category ids, property keys, location codes and places. See `docs/AGENTS.md`.
 
 If only the files are available (no server), edit `inventory.json` following
 `docs/DATA_FORMAT.md`: keep 2-space indentation, unique slug ids, ISO timestamps, and add photos to

@@ -8,6 +8,8 @@ sensors, displays, modules, passives and everything else in your boxes.
   type, sensor type, … — filters are built automatically from the properties your parts have.
 - **Locations with quantities**: a part can be split across several boxes (e.g. 2 in `A1`, 8 in `K2`),
   amounts can be unknown, and `−`/`+` buttons update stock when you take something out.
+- **Places**: group boxes by where they are (e.g. Place 1 and Place 2, or the stock of an e-shop) and
+  choose in the list where to search; quantities and filters then count only that place.
 - **Add, edit and remove parts** in the app, including photos straight from a phone camera
   (scaled down automatically, thumbnails are generated).
 - **AI agents**: an MCP server and a REST API let assistants such as Claude search the inventory,
@@ -76,7 +78,7 @@ endpoints:
 | --- | --- |
 | `get_overview` | Counts per category and location, stock status, recent changes |
 | `get_schema` | Category ids, properties (with types and suggested values), location codes |
-| `search_parts` | Text search plus filters: category, location, stock, tags, property values |
+| `search_parts` | Text search plus filters: category, place, location, stock, tags, property values |
 | `get_part` | All details of a part (optionally with its photo) |
 | `add_parts` | Add one or many parts (with photo URLs); skips duplicates by name |
 | `update_part` | Change fields; properties are merged |

@@ -243,22 +243,23 @@
     return part;
   }
 
-  function addPart(data) {
+  /** `options.place`: place of locations that the part's stock creates. */
+  function addPart(data, options = {}) {
     return commit('add', (draft) => {
       const taken = new Set(draft.parts.map((part) => part.id));
       const id = U.uniqueId(U.slugify(data.name) || 'part', taken);
       const part = buildPart(data, id);
-      S.ensureReferences(draft, part);
+      S.ensureReferences(draft, part, options);
       draft.parts.push(part);
       return id;
     });
   }
 
-  function updatePart(id, data) {
+  function updatePart(id, data, options = {}) {
     return commit('update', (draft) => {
       const index = draft.parts.findIndex((part) => part.id === id);
       const part = buildPart(data, id, index >= 0 ? draft.parts[index].createdAt : null);
-      S.ensureReferences(draft, part);
+      S.ensureReferences(draft, part, options);
       if (index >= 0) draft.parts[index] = part;
       else draft.parts.push(part); // deleted elsewhere meanwhile: keep the user's edit
       return id;
@@ -312,6 +313,10 @@
     return commit('location', (draft) => {
       const location = S.normalizeLocation(data);
       if (!location) throw new Error('The location needs a code.');
+      // A place written in another case joins the existing place of that name.
+      const place = location.place.toLowerCase();
+      const same = place && draft.locations.find((loc) => loc.place.toLowerCase() === place && loc.code !== oldCode);
+      if (same) location.place = same.place;
       const clash = draft.locations.find((loc) => loc.code.toLowerCase() === location.code.toLowerCase()
         && (!oldCode || loc.code.toLowerCase() !== oldCode.toLowerCase()));
       if (clash) throw new Error(`Location code “${location.code}” is already used.`);
@@ -326,7 +331,23 @@
       } else {
         draft.locations.push(location);
       }
+      S.unifyPlaces(draft.locations);
       return location.code;
+    });
+  }
+
+  /** Renames a place in all its locations; an empty name removes the place from them. */
+  function renamePlace(from, to) {
+    return commit('place', (draft) => {
+      const name = S.normalizePlace(to);
+      let changed = 0;
+      for (const location of draft.locations) {
+        if (location.place !== from) continue;
+        location.place = name;
+        changed += 1;
+      }
+      S.unifyPlaces(draft.locations);
+      return changed;
     });
   }
 
@@ -508,6 +529,7 @@
     updateSettings,
     saveLocation,
     deleteLocation,
+    renamePlace,
     saveCategory,
     moveCategory,
     deleteCategory,

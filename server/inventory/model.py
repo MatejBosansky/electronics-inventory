@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 FORMAT = "electronics-inventory"
-VERSION = 1
+VERSION = 2  # 2: locations have a "place"
 DEFAULT_TITLE = "Electronics Inventory"
 FIELD_TYPES = ("text", "number", "select", "multi", "bool")
 FALLBACK_CATEGORY = "other"
@@ -205,14 +205,33 @@ def normalize_color(value):
     return raw.lower() if COLOR_RE.match(raw) else DEFAULT_LOCATION_COLOR
 
 
+def normalize_place(value):
+    """Place a location belongs to (e.g. "Place 1"); "" = none."""
+    return text(value).strip()[:60]
+
+
 def normalize_location(raw):
     if not isinstance(raw, dict):
         return None
     code = normalize_location_code(raw.get("code", raw.get("id")))
     if not code:
         return None
-    return {"code": code, "name": text(raw.get("name")).strip() or code, "color": normalize_color(raw.get("color")),
-            "notes": text(raw.get("notes"))}
+    return {"code": code, "name": text(raw.get("name")).strip() or code, "place": normalize_place(raw.get("place")),
+            "color": normalize_color(raw.get("color")), "notes": text(raw.get("notes"))}
+
+
+def unify_places(locations):
+    """Places that differ only in case get one spelling (the first one used)."""
+    spelling = {}
+    for location in locations:
+        if not location["place"]:
+            continue
+        key = location["place"].lower()
+        if key in spelling:
+            location["place"] = spelling[key]
+        else:
+            spelling[key] = location["place"]
+    return locations
 
 
 def normalize_locations(raw):
@@ -224,7 +243,7 @@ def normalize_locations(raw):
         if location and location["code"].lower() not in seen:
             seen.add(location["code"].lower())
             out.append(location)
-    return out
+    return unify_places(out)
 
 
 def normalize_tags(raw):
@@ -360,8 +379,8 @@ def ensure_references(inv, part, defaults):
         if match:
             row["location"] = match["code"]
         else:
-            inv["locations"].append({"code": row["location"], "name": row["location"], "color": DEFAULT_LOCATION_COLOR,
-                                     "notes": ""})
+            inv["locations"].append({"code": row["location"], "name": row["location"], "place": "",
+                                     "color": DEFAULT_LOCATION_COLOR, "notes": ""})
             created.append(f"location {row['location']}")
     return created
 
@@ -445,6 +464,26 @@ def find_location(inv, code):
         return None
     lower = text(code).lower()
     return next((loc for loc in inv["locations"] if loc["code"].lower() == lower), None)
+
+
+def places(inv):
+    """Places in the order of their first location."""
+    out = []
+    for location in inv["locations"]:
+        if location["place"] and location["place"] not in out:
+            out.append(location["place"])
+    return out
+
+
+def find_place(inv, name):
+    """The stored spelling of a place name (case-insensitive), or None."""
+    lower = text(name).strip().lower()
+    return next((place for place in places(inv) if place.lower() == lower), None) if lower else None
+
+
+def place_of(inv, code):
+    location = find_location(inv, code)
+    return location["place"] if location else ""
 
 
 def find_part(inv, part_id):

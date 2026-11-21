@@ -41,6 +41,7 @@
     const rows = part.stock.map((row) => {
       const location = S.locationByCode(inv, row.location);
       const name = location && location.name !== location.code ? location.name : '';
+      const place = location ? location.place : '';
       const qty = row.qty;
       return `
         <li class="stock__row">
@@ -48,6 +49,7 @@
             ${App.list.locationDot(inv, row.location)}
             <strong>${esc(row.location || 'Unassigned')}</strong>
             ${name ? `<span class="muted">${esc(name)}</span>` : ''}
+            ${place ? `<span class="stock__place">${icon('pin')}${esc(place)}</span>` : ''}
           </span>
           <span class="stepper">
             <button type="button" class="btn btn--icon btn--sm" data-action="qty" data-loc="${esc(row.location || '')}" data-delta="-1"
@@ -161,6 +163,19 @@
   // ---------------------------------------------------------------------------
   // Editor: draft handling
 
+  /** The place chosen in the list ('' = all places). */
+  function currentPlace(inv) {
+    return App.filters.activePlace(inv, App.state.place);
+  }
+
+  /** Location offered for a new part: the last one used, or the first one of the chosen place. */
+  function defaultLocation(inv) {
+    const place = currentPlace(inv);
+    if (!place || S.placeOf(inv, lastLocation) === place) return lastLocation;
+    const first = inv.locations.find((loc) => loc.place === place);
+    return first ? first.code : '';
+  }
+
   function emptyDraft(categoryId) {
     return {
       name: '',
@@ -168,7 +183,7 @@
       description: '',
       notes: '',
       tagsText: '',
-      stock: [{ location: lastLocation, qty: '1' }],
+      stock: [{ location: defaultLocation(App.store.inv), qty: '1' }],
       specs: {},
       images: [],
       links: [],
@@ -321,6 +336,13 @@
       <p class="muted small">You can also drop images here or paste them. Large photos are scaled down automatically.</p>`;
   }
 
+  /** Locations for the stock suggestions: those of the chosen place first. */
+  function locationOptions(inv) {
+    const place = currentPlace(inv);
+    if (!place) return inv.locations;
+    return [...inv.locations.filter((loc) => loc.place === place), ...inv.locations.filter((loc) => loc.place !== place)];
+  }
+
   function stockEditorHtml(draft) {
     return `
       <div class="stock-edit">
@@ -418,7 +440,7 @@
         </footer>
       </form>
       <datalist id="dl-locations">
-        ${inv.locations.map((loc) => `<option value="${esc(loc.code)}">${esc(loc.name)}</option>`).join('')}
+        ${locationOptions(inv).map((loc) => `<option value="${esc(loc.code)}">${esc(loc.place ? `${loc.name} · ${loc.place}` : loc.name)}</option>`).join('')}
       </datalist>`;
 
     dialog.querySelector('.sheet__body').scrollTop = scroll;
@@ -571,6 +593,8 @@
     }
     const knownLocations = new Set(inv.locations.map((loc) => loc.code.toLowerCase()));
     const newLocations = [...new Set(stock.map((row) => row.location).filter((code) => code && !knownLocations.has(code.toLowerCase())))];
+    // New box codes typed here belong to the place the user is working in.
+    const place = currentPlace(inv);
 
     session.saving = true;
     renderEdit();
@@ -593,7 +617,9 @@
         links,
         notes: draft.notes,
       };
-      const id = session.isNew ? await App.store.addPart(data) : await App.store.updatePart(session.id, data);
+      const id = session.isNew
+        ? await App.store.addPart(data, { place })
+        : await App.store.updatePart(session.id, data, { place });
       const lastRow = stock.filter((row) => row.location).pop();
       if (lastRow) lastLocation = lastRow.location;
       closeEdit();
@@ -601,7 +627,7 @@
       else App.nav.back(`#/part/${encodeURIComponent(id)}`);
       ui.toast(session.isNew ? 'Part added.' : 'Changes saved.', { timeout: 2500 });
       if (newLocations.length) {
-        ui.toast(`New location ${newLocations.map((code) => `“${code}”`).join(', ')} added. Name it in Settings → Locations.`, {
+        ui.toast(`New location ${newLocations.map((code) => `“${code}”`).join(', ')} added${place ? ` to ${place}` : ''}. Name it in Settings → Locations.`, {
           action: 'Open',
           onAction: () => App.nav.go('#/settings/locations'),
           timeout: 7000,

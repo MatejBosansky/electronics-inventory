@@ -1,4 +1,4 @@
-# inventory.json — data format (version 1)
+# inventory.json — data format (version 2)
 
 The whole inventory is a single JSON document, `inventory.json`, stored in the data folder next to
 the `images/` folder. The app writes it pretty-printed (2 spaces) with a stable key order, so it
@@ -13,7 +13,7 @@ file that is not valid JSON (and offers to restore a snapshot instead).
 ```json
 {
   "format": "electronics-inventory",
-  "version": 1,
+  "version": 2,
   "updatedAt": "2026-01-15T18:30:00Z",
   "settings": { "title": "Electronics Inventory" },
   "fields": [ … ],
@@ -26,7 +26,7 @@ file that is not valid JSON (and offers to restore a snapshot instead).
 | Key | Description |
 | --- | --- |
 | `format` | Always `"electronics-inventory"`. |
-| `version` | Format version. The app refuses files with a newer version than it knows. |
+| `version` | Format version. The app refuses files with a newer version than it knows and saves older ones in the current version (2 added `place` to locations). |
 | `updatedAt` | Time of the last change (ISO 8601, UTC). |
 | `settings.title` | Name shown in the header. |
 | `fields` | Property definitions (see below). If missing, the defaults are used. |
@@ -48,7 +48,8 @@ file that is not valid JSON (and offers to restore a snapshot instead).
 | `unit` | Optional unit shown after the value, e.g. `"MHz"`. |
 | `options` | Optional suggested values for `select` and `multi`. Other values are allowed too. |
 
-Every property becomes a filter when parts in the current view have different values for it.
+Every property becomes a filter when parts in the current view have different values for it, or
+when only some of them have it (the filter then also offers "Any").
 In the "All parts" view only properties used by parts of several categories are offered.
 
 Some default keys: `mcu`, `chip`, `wifi`, `bluetooth`, `bluetoothClassic`, `thread`, `zigbee`,
@@ -71,11 +72,14 @@ Default category ids: `dev-boards`, `comm`, `sensors`, `displays`, `power`, `mot
 ## Locations
 
 ```json
-{ "code": "A1", "name": "Blue organizer", "color": "#2563eb", "notes": "Shelf above the desk" }
+{ "code": "A1", "name": "Blue organizer", "place": "Place 1", "color": "#2563eb", "notes": "Shelf above the desk" }
 ```
 
 `code` is the short label written on the box and the identifier used by parts (unique, compared
 case-insensitively). `color` is a `#rrggbb` color used for the dot shown next to the code.
+`place` groups locations by where they are (e.g. `"Place 1"` and `"Place 2"`, or the stock of an
+e-shop); `""` means none. Places are just these names: the app lists the distinct ones and can show
+the parts of one place at a time. Names differing only in case are merged into the first spelling.
 
 ## Parts
 

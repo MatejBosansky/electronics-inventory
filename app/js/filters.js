@@ -157,6 +157,40 @@
     return { key, label, type: def ? def.type : key, options, active: selected.size };
   }
 
+  // ---------------------------------------------------------------------------
+  // Place (e.g. "Place 1"): the list then shows the parts stored there.
+
+  const scopedParts = new WeakMap(); // part -> Map(place -> part limited to that place)
+
+  /** The place to search in: the chosen one while it exists, otherwise '' (all places). */
+  function activePlace(inv, place) {
+    return place && S.places(inv).includes(place) ? place : '';
+  }
+
+  /**
+   * Parts stored in `place`, each limited to its stock rows there, so quantities, the location
+   * and stock filters and the cards count only that place. Without a place the parts are unchanged.
+   */
+  function inPlace(inv, parts, place) {
+    if (!place) return parts;
+    const codes = new Set(inv.locations.filter((loc) => loc.place === place).map((loc) => loc.code.toLowerCase()));
+    const out = [];
+    for (const part of parts) {
+      const rows = part.stock.filter((row) => row.location && codes.has(row.location.toLowerCase()));
+      if (!rows.length) continue;
+      if (rows.length === part.stock.length) {
+        out.push(part);
+        continue;
+      }
+      // Parts are replaced on every change, so a copy made for this part object stays valid.
+      let byPlace = scopedParts.get(part);
+      if (!byPlace) scopedParts.set(part, (byPlace = new Map()));
+      if (!byPlace.has(place)) byPlace.set(place, { ...part, stock: rows });
+      out.push(byPlace.get(place));
+    }
+    return out;
+  }
+
   function searchParts(inv, fields, parts, query) {
     const tokens = U.fold(query).split(/\s+/).filter(Boolean);
     if (!tokens.length) return parts;
@@ -166,10 +200,10 @@
     });
   }
 
-  /** Number of parts per category that match the search text (ignores the other filters). */
-  function countByCategory(inv, query) {
+  /** Number of parts per category that match the search text in the place (ignores the other filters). */
+  function countByCategory(inv, query, place) {
     const counts = new Map();
-    for (const part of searchParts(inv, S.fieldMap(inv), inv.parts, query)) {
+    for (const part of searchParts(inv, S.fieldMap(inv), inPlace(inv, inv.parts, activePlace(inv, place)), query)) {
       counts.set(part.category, (counts.get(part.category) || 0) + 1);
     }
     return counts;
@@ -178,12 +212,13 @@
   /**
    * Applies the view state to the inventory.
    * @param {object} inv
-   * @param {{category: string|null, query: string, facets: Object<string, Set<string>>, sort: string}} view
+   * @param {{category: string|null, place: string, query: string, facets: Object<string, Set<string>>, sort: string}} view
    */
   function apply(inv, view) {
     const fields = S.fieldMap(inv);
+    const place = activePlace(inv, view.place);
     const inCategory = view.category ? inv.parts.filter((part) => part.category === view.category) : inv.parts;
-    const base = searchParts(inv, fields, inCategory, view.query);
+    const base = searchParts(inv, fields, inPlace(inv, inCategory, place), view.query);
 
     const facets = [];
     const push = (facet) => {
@@ -209,7 +244,7 @@
         chips.push({ key, value, label: `${label}: ${valueLabel}` });
       }
     }
-    return { base, results, facets, chips };
+    return { base, results, facets, chips, place };
   }
 
   function quantity(part) {
@@ -237,5 +272,5 @@
     return [...parts].sort(SORTS[sort] || SORTS.name);
   }
 
-  App.filters = { ANY, NONE, LOCATION, STOCK, TAGS, apply, countByCategory, sortParts, SORT_LABELS };
+  App.filters = { ANY, NONE, LOCATION, STOCK, TAGS, apply, activePlace, inPlace, countByCategory, sortParts, SORT_LABELS };
 })(window.App = window.App || {});

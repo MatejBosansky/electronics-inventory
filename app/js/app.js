@@ -28,6 +28,7 @@
   const state = {
     view: 'boot',
     category: null,
+    place: typeof prefs.place === 'string' ? prefs.place : '', // '' = all places
     query: '',
     facets: {},
     sort: prefs.sort || 'name',
@@ -44,6 +45,7 @@
   function savePrefs() {
     prefs.sort = state.sort;
     prefs.layout = state.layout;
+    prefs.place = state.place;
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch (err) {

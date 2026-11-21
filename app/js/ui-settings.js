@@ -115,35 +115,51 @@
   // ---------------------------------------------------------------------------
   // Locations
 
+  function locationItemHtml(loc, counts) {
+    return `
+      <li class="item">
+        <i class="dot dot--lg" style="--dot:${esc(loc.color)}"></i>
+        <div class="item__main">
+          <div class="item__title"><strong>${esc(loc.code)}</strong>${loc.name !== loc.code ? ` <span class="muted">· ${esc(loc.name)}</span>` : ''}</div>
+          ${loc.notes ? `<div class="item__sub muted small">${esc(loc.notes)}</div>` : ''}
+        </div>
+        <span class="item__meta muted small">${U.plural(counts.get(loc.code) || 0, 'part')}</span>
+        <div class="item__actions">
+          <button type="button" class="btn btn--icon btn--sm" data-action="location-show" data-code="${esc(loc.code)}" title="Show its parts" aria-label="Show parts in ${esc(loc.code)}">${icon('search')}</button>
+          <button type="button" class="btn btn--icon btn--sm" data-action="location-edit" data-code="${esc(loc.code)}" title="Edit" aria-label="Edit ${esc(loc.code)}">${icon('edit')}</button>
+          <button type="button" class="btn btn--icon btn--sm" data-action="location-delete" data-code="${esc(loc.code)}" title="Delete" aria-label="Delete ${esc(loc.code)}">${icon('trash')}</button>
+        </div>
+      </li>`;
+  }
+
   function locationsHtml(inv) {
     const counts = countBy(inv.parts, (part) => new Set(part.stock.map((row) => row.location).filter(Boolean)));
     const sorted = [...inv.locations].sort((a, b) => U.collator.compare(a.code, b.code));
+    const places = S.places(inv);
+    // Grouped by place once there are places; locations without one come last.
+    const groups = places.length
+      ? [...places, ''].map((place) => ({ place, items: sorted.filter((loc) => loc.place === place) })).filter((group) => group.items.length)
+      : [{ place: null, items: sorted }];
     return `
       <section class="card-section">
         <div class="section-head">
           <div>
             <h2 class="section-title">Locations</h2>
-            <p class="muted small">Boxes, drawers and shelves. The code is the short label on the box (e.g. A1); stock entries refer to it.</p>
+            <p class="muted small">Boxes, drawers and shelves. The code is the short label on the box (e.g. A1); stock entries refer to it.
+              Give locations a place (e.g. Place 1 and Place 2) to choose in the list where to search.</p>
           </div>
           <button type="button" class="btn btn--primary btn--sm" data-action="location-new">${icon('plus')}<span>Add location</span></button>
         </div>
-        ${sorted.length ? `
-          <ul class="item-list">
-            ${sorted.map((loc) => `
-              <li class="item">
-                <i class="dot dot--lg" style="--dot:${esc(loc.color)}"></i>
-                <div class="item__main">
-                  <div class="item__title"><strong>${esc(loc.code)}</strong>${loc.name !== loc.code ? ` <span class="muted">· ${esc(loc.name)}</span>` : ''}</div>
-                  ${loc.notes ? `<div class="item__sub muted small">${esc(loc.notes)}</div>` : ''}
-                </div>
-                <span class="item__meta muted small">${U.plural(counts.get(loc.code) || 0, 'part')}</span>
-                <div class="item__actions">
-                  <button type="button" class="btn btn--icon btn--sm" data-action="location-show" data-code="${esc(loc.code)}" title="Show its parts" aria-label="Show parts in ${esc(loc.code)}">${icon('search')}</button>
-                  <button type="button" class="btn btn--icon btn--sm" data-action="location-edit" data-code="${esc(loc.code)}" title="Edit" aria-label="Edit ${esc(loc.code)}">${icon('edit')}</button>
-                  <button type="button" class="btn btn--icon btn--sm" data-action="location-delete" data-code="${esc(loc.code)}" title="Delete" aria-label="Delete ${esc(loc.code)}">${icon('trash')}</button>
-                </div>
-              </li>`).join('')}
-          </ul>` : '<p class="muted">No locations yet. They are also created automatically when you type a new code in a part’s stock.</p>'}
+        ${sorted.length ? groups.map((group) => `
+          ${group.place === null ? '' : `
+            <div class="place-head">
+              ${icon('pin')}
+              <h3 class="place-head__title">${group.place ? esc(group.place) : 'No place'}</h3>
+              <span class="muted small">${U.plural(group.items.length, 'location')}</span>
+              ${group.place ? `<button type="button" class="btn btn--icon btn--sm" data-action="place-rename" data-place="${esc(group.place)}" title="Rename place" aria-label="Rename place ${esc(group.place)}">${icon('edit')}</button>` : ''}
+            </div>`}
+          <ul class="item-list">${group.items.map((loc) => locationItemHtml(loc, counts)).join('')}</ul>`).join('')
+          : '<p class="muted">No locations yet. They are also created automatically when you type a new code in a part’s stock.</p>'}
       </section>`;
   }
 
@@ -153,6 +169,7 @@
     const used = new Set(inv.locations.map((item) => item.color));
     const color = loc ? loc.color : S.LOCATION_COLORS.find((item) => !used.has(item)) || S.LOCATION_COLORS[0];
     const custom = !S.LOCATION_COLORS.includes(color);
+    const place = loc ? loc.place : App.filters.activePlace(inv, App.state.place);
     const body = `
       <div class="form-grid">
         <div class="field">
@@ -163,6 +180,12 @@
         <div class="field">
           <label class="field__label" for="loc-name">Name</label>
           <input type="text" id="loc-name" name="name" value="${esc(loc && loc.name !== loc.code ? loc.name : '')}" maxlength="80" placeholder="e.g. Blue box">
+        </div>
+        <div class="field field--full">
+          <label class="field__label" for="loc-place">Place</label>
+          <input type="text" id="loc-place" name="place" value="${esc(place)}" maxlength="60" list="dl-places" autocomplete="off" placeholder="e.g. Place 1">
+          <datalist id="dl-places">${S.places(inv).map((name) => `<option value="${esc(name)}"></option>`).join('')}</datalist>
+          <p class="field__hint">Optional. Groups locations by where they are, e.g. Place 1 and Place 2; the list can then show one place at a time.</p>
         </div>
         <fieldset class="field field--full">
           <legend class="field__label">Color</legend>
@@ -199,9 +222,35 @@
         return App.store.saveLocation(loc ? loc.code : null, {
           code: codeValue,
           name: String(data.get('name') || '').trim() || codeValue,
+          place: String(data.get('place') || ''),
           color: pick === 'custom' ? data.get('customColor') : pick,
           notes: String(data.get('notes') || ''),
         });
+      },
+    });
+  }
+
+  function placeDialog(place) {
+    const inv = App.store.inv;
+    const count = inv.locations.filter((loc) => loc.place === place).length;
+    const body = `
+      <div class="field">
+        <label class="field__label" for="place-name">Name</label>
+        <input type="text" id="place-name" name="name" value="${esc(place)}" maxlength="60" autocomplete="off">
+        <p class="field__hint">Changes the place of ${U.plural(count, 'location')}. Leave it empty to remove the place from them.</p>
+      </div>`;
+    return ui.formDialog({
+      title: 'Rename place',
+      body,
+      submitLabel: 'Save',
+      async onSubmit(data) {
+        await App.store.renamePlace(place, String(data.get('name') || ''));
+        if (App.state.place === place) {
+          // Keep the list on this place under its new name ('' when it was removed).
+          const name = S.normalizePlace(data.get('name')).toLowerCase();
+          App.state.place = S.places(App.store.inv).find((item) => item.toLowerCase() === name) || '';
+          App.main.savePrefs();
+        }
       },
     });
   }
@@ -701,8 +750,13 @@
     'location-delete'(el) {
       run(() => deleteLocation(el.dataset.code));
     },
+    'place-rename'(el) {
+      run(() => placeDialog(el.dataset.place));
+    },
     'location-show'(el) {
       App.state.category = null;
+      App.state.place = S.placeOf(App.store.inv, el.dataset.code); // the list must include this location
+      App.main.savePrefs();
       App.state.facets = { [App.filters.LOCATION]: new Set([el.dataset.code]) };
       App.main.setQuery('', { render: false });
       App.nav.go('#/');

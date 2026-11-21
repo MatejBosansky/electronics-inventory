@@ -7,7 +7,7 @@
   const U = App.util;
 
   const FORMAT = 'electronics-inventory';
-  const VERSION = 1;
+  const VERSION = 2; // 2: locations have a `place`
   const DEFAULT_TITLE = 'Electronics Inventory';
   const FIELD_TYPES = ['text', 'number', 'select', 'multi', 'bool'];
   const FIELD_TYPE_LABELS = {
@@ -112,6 +112,11 @@
     return /^#[0-9a-fA-F]{6}$/.test(text) ? text.toLowerCase() : DEFAULT_LOCATION_COLOR;
   }
 
+  /** Place a location belongs to (e.g. "Place 1"); '' = none. */
+  function normalizePlace(value) {
+    return str(value).trim().slice(0, 60);
+  }
+
   function normalizeLocation(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const code = normalizeLocationCode(raw.code ?? raw.id);
@@ -119,9 +124,22 @@
     return {
       code,
       name: str(raw.name).trim() || code,
+      place: normalizePlace(raw.place),
       color: normalizeColor(raw.color),
       notes: str(raw.notes),
     };
+  }
+
+  /** Places that differ only in case get one spelling (the first one used). */
+  function unifyPlaces(locations) {
+    const spelling = new Map();
+    for (const location of locations) {
+      if (!location.place) continue;
+      const key = location.place.toLowerCase();
+      if (spelling.has(key)) location.place = spelling.get(key);
+      else spelling.set(key, location.place);
+    }
+    return locations;
   }
 
   function normalizeLocations(raw) {
@@ -135,7 +153,7 @@
         out.push(location);
       }
     }
-    return out;
+    return unifyPlaces(out);
   }
 
   function normalizeTags(raw) {
@@ -236,8 +254,11 @@
     };
   }
 
-  /** Adds categories and locations that parts refer to but the lists do not contain. */
-  function ensureReferences(inv, part) {
+  /**
+   * Adds categories and locations that parts refer to but the lists do not contain.
+   * New locations get `options.place` (e.g. the place the user is working in).
+   */
+  function ensureReferences(inv, part, options = {}) {
     if (!inv.categories.some((cat) => cat.id === part.category)) {
       const known = DEFAULT_CATEGORIES.find((cat) => cat.id === part.category);
       inv.categories.push(known ? clone(known) : {
@@ -251,7 +272,15 @@
       if (!row.location) continue;
       const match = inv.locations.find((loc) => loc.code.toLowerCase() === row.location.toLowerCase());
       if (match) row.location = match.code;
-      else inv.locations.push({ code: row.location, name: row.location, color: DEFAULT_LOCATION_COLOR, notes: '' });
+      else {
+        inv.locations.push({
+          code: row.location,
+          name: row.location,
+          place: normalizePlace(options.place),
+          color: DEFAULT_LOCATION_COLOR,
+          notes: '',
+        });
+      }
     }
   }
 
@@ -306,6 +335,19 @@
     if (!code) return null;
     const lower = String(code).toLowerCase();
     return inv.locations.find((loc) => loc.code.toLowerCase() === lower) || null;
+  }
+
+  /** Places in the order of their first location. */
+  function places(inv) {
+    const out = [];
+    for (const location of inv.locations) if (location.place && !out.includes(location.place)) out.push(location.place);
+    return out;
+  }
+
+  /** Place of a location code ('' when the location has none or does not exist). */
+  function placeOf(inv, code) {
+    const location = locationByCode(inv, code);
+    return location ? location.place : '';
   }
 
   /** Field definition for a key; unknown keys become plain text fields. */
@@ -419,6 +461,8 @@
     normalizeCategory,
     normalizeLocation,
     normalizeLocationCode,
+    normalizePlace,
+    unifyPlaces,
     normalizeTags,
     ensureReferences,
     isRemoteUrl,
@@ -426,6 +470,8 @@
     fieldDef,
     categoryById,
     locationByCode,
+    places,
+    placeOf,
     specKeysFor,
     specText,
     partBadges,

@@ -125,7 +125,7 @@
   // Rendering
 
   function renderSidebar(inv, state, result) {
-    const counts = F.countByCategory(inv, state.query);
+    const counts = F.countByCategory(inv, state.query, result.place);
     const total = [...counts.values()].reduce((a, b) => a + b, 0);
     const showAll = state.showEmptyCategories || inv.parts.length === 0;
     const empty = inv.categories.filter((cat) => !counts.get(cat.id) && cat.id !== state.category).length;
@@ -173,21 +173,50 @@
       </div>`;
   }
 
-  function noResultsHtml(state) {
+  function noResultsHtml(state, place) {
+    const allPlaces = place ? '<button type="button" class="btn" data-action="place-all">Search all places</button>' : '';
+    if (place && !state.query && !activeFilterCount(state)) {
+      return `
+        <div class="empty">
+          <div class="empty__icon">${icon('pin')}</div>
+          <h2>Nothing in ${esc(place)}${state.category ? ' in this category' : ''} yet</h2>
+          <p class="muted">Parts show up here once some of their stock is in a location of this place.</p>
+          <div class="empty__actions">
+            <button type="button" class="btn btn--primary" data-action="new-part">${icon('plus')}<span>Add part</span></button>
+            ${allPlaces}
+          </div>
+        </div>`;
+    }
+    const where = place ? ` in ${esc(place)}` : '';
     return `
       <div class="empty">
         <div class="empty__icon">${icon('search')}</div>
         <h2>No parts match</h2>
-        <p class="muted">${state.query ? `Nothing found for “${esc(state.query)}” with the current filters.` : 'Try removing some filters.'}</p>
+        <p class="muted">${state.query ? `Nothing found for “${esc(state.query)}”${where} with the current filters.` : `Nothing${where} matches the current filters.`}</p>
         <div class="empty__actions">
+          ${allPlaces}
           <button type="button" class="btn" data-action="reset-view">Clear search and filters</button>
         </div>
       </div>`;
   }
 
+  /** "Where to search": shown once locations are grouped into places. */
+  function placeSelectHtml(inv, place) {
+    const places = S.places(inv);
+    if (!places.length) return '';
+    return `
+      <label class="select-wrap toolbar__place${place ? ' is-active' : ''}" title="Where to search">
+        ${icon('pin')}
+        <select data-change="place" aria-label="Place">
+          <option value=""${place ? '' : ' selected'}>All places</option>
+          ${places.map((name) => `<option value="${esc(name)}"${name === place ? ' selected' : ''}>${esc(name)}</option>`).join('')}
+        </select>
+      </label>`;
+  }
+
   function renderMain(inv, state, result) {
     const fields = S.fieldMap(inv);
-    const counts = F.countByCategory(inv, state.query);
+    const counts = F.countByCategory(inv, state.query, result.place);
     const total = [...counts.values()].reduce((a, b) => a + b, 0);
     const chipCategories = inv.categories.filter((cat) => counts.get(cat.id) || cat.id === state.category);
     const filtersActive = activeFilterCount(state);
@@ -196,7 +225,7 @@
 
     let list;
     if (!inv.parts.length) list = emptyInventoryHtml();
-    else if (!results.length) list = noResultsHtml(state);
+    else if (!results.length) list = noResultsHtml(state, result.place);
     else {
       const render = state.layout === 'list' ? rowHtml : cardHtml;
       list = `<div class="results results--${state.layout}">${results.map((part) => render(inv, fields, part)).join('')}</div>`;
@@ -216,6 +245,7 @@
             ${icon('filter')}<span>Filters</span>${filtersActive ? `<span class="count-badge">${filtersActive}</span>` : ''}
           </button>
           <p class="toolbar__count"><strong>${results.length}</strong> ${results.length === 1 ? 'part' : 'parts'}${category ? ` in ${esc(category.name)}` : ''}</p>
+          ${placeSelectHtml(inv, result.place)}
           <label class="select-wrap" title="Sort">
             ${icon('sort')}
             <select data-change="sort" aria-label="Sort by">
@@ -293,7 +323,23 @@
       App.main.renderSoon();
       return true;
     }
+    if (el.matches('select[data-change="place"]')) {
+      setPlace(el.value);
+      return true;
+    }
     return false;
+  }
+
+  /** Chooses where to search ('' = all places); remembered on this device. */
+  function setPlace(place) {
+    const state = App.state;
+    if (state.place !== place) {
+      // Location filters may point to boxes of the previous place.
+      delete state.facets[F.LOCATION];
+      state.place = place;
+      App.main.savePrefs();
+    }
+    App.main.renderSoon();
   }
 
   /** Keeps track of which filter groups are collapsed (the `toggle` event does not bubble). */
@@ -354,12 +400,16 @@
       App.state.showEmptyCategories = !App.state.showEmptyCategories;
       App.main.renderSoon();
     },
+    'place-all'() {
+      setPlace('');
+    },
   });
 
   App.list = {
     render,
     handleChange,
     handleToggle,
+    setPlace,
     locationDot,
     placeholder,
     quantityLabel,

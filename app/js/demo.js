@@ -3,9 +3,9 @@
   'use strict';
 
   const LOCATIONS = [
-    { code: 'A1', name: 'Blue organizer', color: '#2563eb', notes: 'Example location' },
-    { code: 'A2', name: 'Orange organizer', color: '#ea580c', notes: 'Example location' },
-    { code: 'D1', name: 'Drawer 1', color: '#6b7280', notes: 'Example location' },
+    { code: 'A1', name: 'Blue organizer', place: 'Place 1', color: '#2563eb', notes: 'Example location' },
+    { code: 'A2', name: 'Orange organizer', place: 'Place 1', color: '#ea580c', notes: 'Example location' },
+    { code: 'D1', name: 'Drawer 1', place: 'Place 2', color: '#6b7280', notes: 'Example location' },
   ];
 
   const PARTS = [
