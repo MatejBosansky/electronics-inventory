@@ -186,3 +186,7 @@ docs/                    data format and agent documentation
 
 Current versions of Chrome, Edge, Firefox and Safari (desktop and mobile). The *data folder*
 option of the file mode needs a Chromium-based browser; everything else works everywhere.
+
+## License
+
+[MIT](LICENSE)
