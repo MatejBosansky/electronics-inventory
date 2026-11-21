@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="Inventory of electronic components: boards, sensors, displays and more.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Inventory">
+  <title>Electronics Inventory</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app" id="app" data-view="boot">
+    <header class="topbar">
+      <div class="topbar__inner">
+        <a class="brand" href="#/" data-action="home">
+          <span class="brand__logo" data-icon="chip"></span>
+          <span class="brand__title" id="brand-title">Electronics Inventory</span>
+        </a>
+        <div class="search" role="search">
+          <span class="search__icon" data-icon="search"></span>
+          <input id="search" type="search" placeholder="Search parts, chips, tags…" autocomplete="off" spellcheck="false"
+            enterkeyhint="search" aria-label="Search parts">
+          <button type="button" class="search__clear" data-action="clear-search" aria-label="Clear search" data-icon="x"></button>
+        </div>
+        <div class="topbar__actions">
+          <button type="button" class="status-pill" id="storage-pill" data-action="open-data-settings" hidden></button>
+          <button type="button" class="btn btn--primary topbar__add" data-action="new-part">
+            <span data-icon="plus"></span><span>Add part</span>
+          </button>
+          <button type="button" class="btn btn--icon" data-action="open-settings" aria-label="Settings" title="Settings">
+            <span data-icon="settings"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+    <div class="layout">
+      <aside class="sidebar" id="sidebar" aria-label="Categories and filters"></aside>
+      <main class="main" id="main"></main>
+    </div>
+    <button type="button" class="fab" data-action="new-part" aria-label="Add part"><span data-icon="plus"></span></button>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite" popover="manual"></div>
+
+  <dialog id="dlg-part" class="sheet sheet--side" aria-labelledby="part-title"></dialog>
+  <dialog id="dlg-edit" class="sheet sheet--modal" aria-labelledby="edit-title"></dialog>
+  <dialog id="dlg-filters" class="sheet sheet--bottom" aria-label="Filters"></dialog>
+  <dialog id="dlg-form" class="sheet sheet--modal sheet--narrow"></dialog>
+  <dialog id="dlg-confirm" class="sheet sheet--alert" role="alertdialog"></dialog>
+  <dialog id="dlg-lightbox" class="lightbox" aria-label="Photo viewer"></dialog>
+
+  <noscript><p class="noscript">This app needs JavaScript.</p></noscript>
+
+  <!-- Plain scripts (no modules) so the app also runs when index.html is opened from disk. -->
+  <script src="js/util.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/defaults.js"></script>
+  <script src="js/schema.js"></script>
+  <script src="js/zip.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/images.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/backup.js"></script>
+  <script src="js/filters.js"></script>
+  <script src="js/ui-common.js"></script>
+  <script src="js/ui-list.js"></script>
+  <script src="js/ui-part.js"></script>
+  <script src="js/ui-settings.js"></script>
+  <script src="js/ui-start.js"></script>
+  <script src="js/demo.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

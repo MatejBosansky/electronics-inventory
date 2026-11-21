@@ -1,0 +1,15 @@
+# Inventory data never belongs in the repository.
+/data/
+*.zip
+
+# Local settings (may contain a password).
+.env
+
+# OS / tooling
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+
+# Local editor / assistant settings
+/.claude/

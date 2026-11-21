@@ -1,0 +1,40 @@
+# Electronics Inventory
+#   docker compose up -d --build
+# Settings can be put into a .env file next to this file (see .env.example).
+services:
+  # The web app and the data folder (nginx).
+  web:
+    build: .
+    image: electronics-inventory:latest
+    container_name: electronics-inventory
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${INVENTORY_BIND:-0.0.0.0}:${INVENTORY_PORT:-8080}:80"
+    environment:
+      # Owner of the files in the data folder (run `id` on the host to see your ids).
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      # Optional basic auth for the app, the API and MCP. Leave empty when the server is reachable
+      # only from your LAN / Tailscale.
+      AUTH_USER: "${AUTH_USER:-}"
+      AUTH_PASSWORD: "${AUTH_PASSWORD:-}"
+    volumes:
+      # The whole database: inventory.json + images/ + backups/. Copy this folder to back it up.
+      - "${INVENTORY_DATA:-./data}:/srv/data"
+
+  # REST API (/api/) and MCP server (/mcp) for scripts and AI agents; reached through "web".
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: electronics-inventory-api:latest
+    container_name: electronics-inventory-api
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      # Address used in links returned by the API, e.g. http://server:8080 (optional).
+      INVENTORY_PUBLIC_URL: "${INVENTORY_PUBLIC_URL:-}"
+    volumes:
+      - "${INVENTORY_DATA:-./data}:/srv/data"
