@@ -9,7 +9,7 @@ sensors, displays, modules, passives and everything else in your boxes.
 - **Locations with quantities**: a part can be split across several boxes (e.g. 2 in `A1`, 8 in `K2`),
   amounts can be unknown, and `−`/`+` buttons update stock when you take something out.
 - **Places**: group boxes by where they are (e.g. Place 1 and Place 2, or the stock of an e-shop) and
-  choose in the list where to search; quantities and filters then count only that place.
+  tick the places to search in; quantities and filters then count only those places.
 - **Add, edit and remove parts** in the app, including photos straight from a phone camera
   (scaled down automatically, thumbnails are generated).
 - **AI agents**: an MCP server and a REST API let assistants such as Claude search the inventory,

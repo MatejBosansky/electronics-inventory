@@ -85,8 +85,8 @@ Errors are returned as MCP tool results with `isError: true`, and by REST as
 ### Searching
 
 `search_parts` arguments: `query` (all words must match name, description, notes, tags, property
-values or locations), `category`, `location` (`"none"` = unassigned), `place` (parts with stock in
-that place's locations), `in_stock`, `tags`, `sort`
+values or locations), `category`, `location` (`"none"` = unassigned), `place` (one or more places:
+parts with stock in any of them; REST: comma separated), `in_stock`, `tags`, `sort`
 (`name`, `updated`, `created`, `quantity`), `limit`, `offset` and `specs` — property conditions that
 must all match:
 
@@ -103,12 +103,12 @@ and `spec.diagonal.min=1`.
 
 ### Places
 
-Locations can belong to a place, e.g. Place 1 and Place 2, or the stock of an e-shop (`place` on
-the location, `""` = none; `get_schema` lists the places). `search_parts` with `place` returns
-parts that have stock there, and stock rows in results name the place of their location, so "how
-many are in Place 2" is the sum of the rows with that place. Put a box into a place with
-`upsert_location {"code": "N1", "place": "Place 2"}`; a name differing only in case joins the
-existing place.
+Locations can belong to a place, e.g. Place 1 and Place 2, or the stock of an e-shop (`place` on the
+location, `""` = none; `get_schema` lists the places). `search_parts` with `place` (one name or a
+list) returns parts that have stock in any of them, and stock rows in results name the place of
+their location, so "how many are in Place 2" is the sum of the rows with that place. Put a box into
+a place with `upsert_location {"code": "N1", "place": "Place 2"}`; a name differing only in case
+joins the existing place.
 
 ### Adding parts
 

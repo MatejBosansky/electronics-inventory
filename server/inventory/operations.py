@@ -452,13 +452,16 @@ def _query_parts(ctx, inv, args):
                 raise InventoryError(f'Unknown location "{location}". Known: {known_ids(inv["locations"], "code")}.',
                                      400, "unknown_location")
             parts = [part for part in parts if any(row["location"] == found["code"] for row in part["stock"])]
-    place = arg_str(args, "place")
-    if place:
-        found_place = model.find_place(inv, place)
-        if not found_place:
-            known = ", ".join(model.places(inv)) or "none yet (set 'place' with upsert_location)"
-            raise InventoryError(f'Unknown place "{place}". Known: {known}.', 400, "unknown_place")
-        codes = {loc["code"] for loc in inv["locations"] if loc["place"] == found_place}
+    places = arg_list(args, "place")
+    if places:
+        found_places = set()
+        for place in places:
+            found_place = model.find_place(inv, place)
+            if not found_place:
+                known = ", ".join(model.places(inv)) or "none yet (set 'place' with upsert_location)"
+                raise InventoryError(f'Unknown place "{place}". Known: {known}.', 400, "unknown_place")
+            found_places.add(found_place)
+        codes = {loc["code"] for loc in inv["locations"] if loc["place"] in found_places}
         parts = [part for part in parts if any(row["location"] in codes for row in part["stock"])]
     stocked = arg_bool(args, "in_stock")
     if stocked is not None:
@@ -490,7 +493,8 @@ def _query_parts(ctx, inv, args):
     "query": string("Words that must all appear (name, description, notes, tags, property values, locations)."),
     "category": string("Category id, e.g. dev-boards."),
     "location": string("Location code, or \"none\" for parts with unassigned stock."),
-    "place": string("Place name from get_schema (e.g. Place 1): only parts with stock in its locations."),
+    "place": {"type": "array", "items": {"type": "string"},
+              "description": "Place names from get_schema, e.g. [\"Place 1\", \"Place 3\"]: parts with stock in any of them."},
     "in_stock": {"type": "boolean", "description": "true = only parts with stock, false = only out of stock."},
     "tags": {"type": "array", "items": {"type": "string"}, "description": "Parts having any of these tags."},
     "specs": {

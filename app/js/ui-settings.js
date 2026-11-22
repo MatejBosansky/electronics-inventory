@@ -169,7 +169,7 @@
     const used = new Set(inv.locations.map((item) => item.color));
     const color = loc ? loc.color : S.LOCATION_COLORS.find((item) => !used.has(item)) || S.LOCATION_COLORS[0];
     const custom = !S.LOCATION_COLORS.includes(color);
-    const place = loc ? loc.place : App.filters.activePlace(inv, App.state.place);
+    const place = loc ? loc.place : App.filters.activePlaces(inv, App.state.places)[0] || '';
     const body = `
       <div class="form-grid">
         <div class="field">
@@ -185,7 +185,7 @@
           <label class="field__label" for="loc-place">Place</label>
           <input type="text" id="loc-place" name="place" value="${esc(place)}" maxlength="60" list="dl-places" autocomplete="off" placeholder="e.g. Place 1">
           <datalist id="dl-places">${S.places(inv).map((name) => `<option value="${esc(name)}"></option>`).join('')}</datalist>
-          <p class="field__hint">Optional. Groups locations by where they are, e.g. Place 1 and Place 2; the list can then show one place at a time.</p>
+          <p class="field__hint">Optional. Groups locations by where they are, e.g. Place 1 and Place 2; the list can then show only the places you tick.</p>
         </div>
         <fieldset class="field field--full">
           <legend class="field__label">Color</legend>
@@ -245,10 +245,11 @@
       submitLabel: 'Save',
       async onSubmit(data) {
         await App.store.renamePlace(place, String(data.get('name') || ''));
-        if (App.state.place === place) {
-          // Keep the list on this place under its new name ('' when it was removed).
+        if (App.state.places.includes(place)) {
+          // Keep the place chosen in the list under its new name (dropped when it was removed).
           const name = S.normalizePlace(data.get('name')).toLowerCase();
-          App.state.place = S.places(App.store.inv).find((item) => item.toLowerCase() === name) || '';
+          const renamed = S.places(App.store.inv).find((item) => item.toLowerCase() === name);
+          App.state.places = [...new Set(App.state.places.map((item) => (item === place ? renamed : item)).filter(Boolean))];
           App.main.savePrefs();
         }
       },
@@ -755,7 +756,8 @@
     },
     'location-show'(el) {
       App.state.category = null;
-      App.state.place = S.placeOf(App.store.inv, el.dataset.code); // the list must include this location
+      const place = S.placeOf(App.store.inv, el.dataset.code); // the list must include this location
+      App.state.places = place ? [place] : [];
       App.main.savePrefs();
       App.state.facets = { [App.filters.LOCATION]: new Set([el.dataset.code]) };
       App.main.setQuery('', { render: false });

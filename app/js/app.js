@@ -25,10 +25,16 @@
 
   const prefs = loadPrefs();
 
+  /** Places chosen on this device (an earlier version stored a single `place`). */
+  function savedPlaces() {
+    if (Array.isArray(prefs.places)) return prefs.places.filter((place) => typeof place === 'string' && place);
+    return typeof prefs.place === 'string' && prefs.place ? [prefs.place] : [];
+  }
+
   const state = {
     view: 'boot',
     category: null,
-    place: typeof prefs.place === 'string' ? prefs.place : '', // '' = all places
+    places: savedPlaces(), // [] = all places
     query: '',
     facets: {},
     sort: prefs.sort || 'name',
@@ -45,7 +51,8 @@
   function savePrefs() {
     prefs.sort = state.sort;
     prefs.layout = state.layout;
-    prefs.place = state.place;
+    prefs.places = state.places;
+    delete prefs.place;
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch (err) {

@@ -158,22 +158,26 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Place (e.g. "Place 1"): the list then shows the parts stored there.
+  // Places (e.g. "Place 1"): the list then shows the parts stored in the chosen places.
 
-  const scopedParts = new WeakMap(); // part -> Map(place -> part limited to that place)
+  const scopedParts = new WeakMap(); // part -> Map(places key -> part limited to those places)
 
-  /** The place to search in: the chosen one while it exists, otherwise '' (all places). */
-  function activePlace(inv, place) {
-    return place && S.places(inv).includes(place) ? place : '';
+  /** The chosen places that still exist, in the inventory's order ([] = all places). */
+  function activePlaces(inv, places) {
+    const chosen = new Set(places || []);
+    return S.places(inv).filter((place) => chosen.has(place));
   }
 
   /**
-   * Parts stored in `place`, each limited to its stock rows there, so quantities, the location
-   * and stock filters and the cards count only that place. Without a place the parts are unchanged.
+   * Parts stored in any of `places`, each limited to its stock rows there, so quantities, the
+   * location and stock filters and the cards count only those places. With no places the parts are
+   * unchanged.
    */
-  function inPlace(inv, parts, place) {
-    if (!place) return parts;
-    const codes = new Set(inv.locations.filter((loc) => loc.place === place).map((loc) => loc.code.toLowerCase()));
+  function inPlaces(inv, parts, places) {
+    if (!places.length) return parts;
+    const wanted = new Set(places);
+    const codes = new Set(inv.locations.filter((loc) => wanted.has(loc.place)).map((loc) => loc.code.toLowerCase()));
+    const key = places.join('\n');
     const out = [];
     for (const part of parts) {
       const rows = part.stock.filter((row) => row.location && codes.has(row.location.toLowerCase()));
@@ -183,12 +187,24 @@
         continue;
       }
       // Parts are replaced on every change, so a copy made for this part object stays valid.
-      let byPlace = scopedParts.get(part);
-      if (!byPlace) scopedParts.set(part, (byPlace = new Map()));
-      if (!byPlace.has(place)) byPlace.set(place, { ...part, stock: rows });
-      out.push(byPlace.get(place));
+      let byPlaces = scopedParts.get(part);
+      if (!byPlaces) scopedParts.set(part, (byPlaces = new Map()));
+      if (!byPlaces.has(key)) byPlaces.set(key, { ...part, stock: rows });
+      out.push(byPlaces.get(key));
     }
     return out;
+  }
+
+  /** Number of parts per place in the category that match the search text (ignores the other filters). */
+  function countByPlace(inv, category, query) {
+    const inCategory = category ? inv.parts.filter((part) => part.category === category) : inv.parts;
+    const placeByCode = new Map(inv.locations.map((loc) => [loc.code.toLowerCase(), loc.place]));
+    const counts = new Map();
+    for (const part of searchParts(inv, S.fieldMap(inv), inCategory, query)) {
+      const places = new Set(part.stock.map((row) => row.location && placeByCode.get(row.location.toLowerCase())));
+      for (const place of places) if (place) counts.set(place, (counts.get(place) || 0) + 1);
+    }
+    return counts;
   }
 
   function searchParts(inv, fields, parts, query) {
@@ -200,10 +216,10 @@
     });
   }
 
-  /** Number of parts per category that match the search text in the place (ignores the other filters). */
-  function countByCategory(inv, query, place) {
+  /** Number of parts per category that match the search text in the places (ignores the other filters). */
+  function countByCategory(inv, query, places) {
     const counts = new Map();
-    for (const part of searchParts(inv, S.fieldMap(inv), inPlace(inv, inv.parts, activePlace(inv, place)), query)) {
+    for (const part of searchParts(inv, S.fieldMap(inv), inPlaces(inv, inv.parts, activePlaces(inv, places)), query)) {
       counts.set(part.category, (counts.get(part.category) || 0) + 1);
     }
     return counts;
@@ -212,13 +228,13 @@
   /**
    * Applies the view state to the inventory.
    * @param {object} inv
-   * @param {{category: string|null, place: string, query: string, facets: Object<string, Set<string>>, sort: string}} view
+   * @param {{category: string|null, places: string[], query: string, facets: Object<string, Set<string>>, sort: string}} view
    */
   function apply(inv, view) {
     const fields = S.fieldMap(inv);
-    const place = activePlace(inv, view.place);
+    const places = activePlaces(inv, view.places);
     const inCategory = view.category ? inv.parts.filter((part) => part.category === view.category) : inv.parts;
-    const base = searchParts(inv, fields, inPlace(inv, inCategory, place), view.query);
+    const base = searchParts(inv, fields, inPlaces(inv, inCategory, places), view.query);
 
     const facets = [];
     const push = (facet) => {
@@ -244,7 +260,7 @@
         chips.push({ key, value, label: `${label}: ${valueLabel}` });
       }
     }
-    return { base, results, facets, chips, place };
+    return { base, results, facets, chips, places };
   }
 
   function quantity(part) {
@@ -272,5 +288,6 @@
     return [...parts].sort(SORTS[sort] || SORTS.name);
   }
 
-  App.filters = { ANY, NONE, LOCATION, STOCK, TAGS, apply, activePlace, inPlace, countByCategory, sortParts, SORT_LABELS };
+  App.filters = { ANY, NONE, LOCATION, STOCK, TAGS, apply, activePlaces, inPlaces, countByCategory,
+    countByPlace, sortParts, SORT_LABELS };
 })(window.App = window.App || {});

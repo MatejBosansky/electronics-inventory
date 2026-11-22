@@ -29,7 +29,8 @@ Inventory of electronic components (development boards, sensors, displays, modul
 - Quantities are stored per location as stock rows {location, qty}; qty null means unknown, location null means
   unassigned.
 - Locations can belong to a place (e.g. Place 1 and Place 2, or the stock of an e-shop): get_schema
-  lists the places, search_parts accepts place, and stock rows name the place of their location.
+  lists the places, search_parts accepts one or more in place, and stock rows name the place of
+  their location.
 - Before adding a part, search_parts for it; to record more pieces of an existing part use adjust_stock.
 - Property filters in search_parts: {"zigbee": true}, {"thread": "*"} (any value), {"bluetooth": ["5.0", "5.3"]},
   {"diagonal": {"min": 1}}. Thread and Bluetooth values are versions ("1.3", "5.3").

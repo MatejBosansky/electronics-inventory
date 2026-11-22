@@ -79,7 +79,7 @@ Default category ids: `dev-boards`, `comm`, `sensors`, `displays`, `power`, `mot
 case-insensitively). `color` is a `#rrggbb` color used for the dot shown next to the code.
 `place` groups locations by where they are (e.g. `"Place 1"` and `"Place 2"`, or the stock of an
 e-shop); `""` means none. Places are just these names: the app lists the distinct ones and can show
-the parts of one place at a time. Names differing only in case are merged into the first spelling.
+only the parts in the places you choose. Names differing only in case are merged into the first spelling.
 
 ## Parts
 

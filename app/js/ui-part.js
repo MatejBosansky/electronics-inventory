@@ -163,16 +163,16 @@
   // ---------------------------------------------------------------------------
   // Editor: draft handling
 
-  /** The place chosen in the list ('' = all places). */
-  function currentPlace(inv) {
-    return App.filters.activePlace(inv, App.state.place);
+  /** The places chosen in the list ([] = all places). */
+  function currentPlaces(inv) {
+    return App.filters.activePlaces(inv, App.state.places);
   }
 
-  /** Location offered for a new part: the last one used, or the first one of the chosen place. */
+  /** Location offered for a new part: the last one used, or the first one of the first chosen place. */
   function defaultLocation(inv) {
-    const place = currentPlace(inv);
-    if (!place || S.placeOf(inv, lastLocation) === place) return lastLocation;
-    const first = inv.locations.find((loc) => loc.place === place);
+    const places = currentPlaces(inv);
+    if (!places.length || places.includes(S.placeOf(inv, lastLocation))) return lastLocation;
+    const first = inv.locations.find((loc) => loc.place === places[0]);
     return first ? first.code : '';
   }
 
@@ -336,11 +336,12 @@
       <p class="muted small">You can also drop images here or paste them. Large photos are scaled down automatically.</p>`;
   }
 
-  /** Locations for the stock suggestions: those of the chosen place first. */
+  /** Locations for the stock suggestions: those of the chosen places first. */
   function locationOptions(inv) {
-    const place = currentPlace(inv);
-    if (!place) return inv.locations;
-    return [...inv.locations.filter((loc) => loc.place === place), ...inv.locations.filter((loc) => loc.place !== place)];
+    const places = currentPlaces(inv);
+    if (!places.length) return inv.locations;
+    const chosen = (loc) => places.includes(loc.place);
+    return [...inv.locations.filter(chosen), ...inv.locations.filter((loc) => !chosen(loc))];
   }
 
   function stockEditorHtml(draft) {
@@ -593,8 +594,8 @@
     }
     const knownLocations = new Set(inv.locations.map((loc) => loc.code.toLowerCase()));
     const newLocations = [...new Set(stock.map((row) => row.location).filter((code) => code && !knownLocations.has(code.toLowerCase())))];
-    // New box codes typed here belong to the place the user is working in.
-    const place = currentPlace(inv);
+    // New box codes typed here belong to the place the user is working in (the first one chosen).
+    const place = currentPlaces(inv)[0] || '';
 
     session.saving = true;
     renderEdit();
