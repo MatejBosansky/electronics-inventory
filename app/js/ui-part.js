@@ -113,6 +113,7 @@
         <article class="detail">
           ${galleryHtml(part, category)}
           <div class="detail__head">
+            ${App.list.numbersHtml(part, 'id-pill')}
             <button type="button" class="cat-pill" data-action="category-from-detail" data-id="${esc(part.category)}">
               ${icon(category ? category.icon : 'shapes')}<span>${esc(category ? category.name : part.category)}</span>
             </button>
@@ -183,6 +184,7 @@
       description: '',
       notes: '',
       tagsText: '',
+      numbersText: '',
       stock: [{ location: defaultLocation(App.store.inv), qty: '1' }],
       specs: {},
       images: [],
@@ -197,6 +199,7 @@
       description: part.description,
       notes: part.notes,
       tagsText: part.tags.join(', '),
+      numbersText: part.numbers.join(', '),
       stock: part.stock.map((row) => ({ location: row.location || '', qty: row.qty === null ? '' : String(row.qty) })),
       specs: structuredClone(part.specs),
       images: part.images.map((image) => ({ ...image })),
@@ -378,6 +381,7 @@
     const dialog = editDialog();
     const inv = App.store.inv;
     const draft = edit.draft;
+    const nextNumbers = S.nextNumbers(inv, draft.category);
     const oldBody = dialog.querySelector('.sheet__body');
     const scroll = oldBody ? oldBody.scrollTop : 0;
     const active = document.activeElement && dialog.contains(document.activeElement) ? document.activeElement.dataset.bind : null;
@@ -396,12 +400,19 @@
                 placeholder="e.g. ESP32-C6-DevKitC-1" required>
             </div>
             <div class="field">
+              <label class="field__label" for="edit-numbers">ID number</label>
+              <input type="text" id="edit-numbers" data-bind="numbersText" value="${esc(draft.numbersText)}" maxlength="80"
+                placeholder="${esc(`e.g. ${nextNumbers[0] || '57'}`)}" autocomplete="off" spellcheck="false">
+              <p class="field__hint">Written on the part’s bag or label${nextNumbers.length ? `. Next free: ${nextNumbers.map((number) => `
+                <button type="button" class="link-btn" data-action="edit-use-number" data-number="${esc(number)}">${esc(number)}</button>`).join(',')}` : ''}</p>
+            </div>
+            <div class="field">
               <label class="field__label" for="edit-category">Category</label>
               <select id="edit-category" data-bind="category">
                 ${inv.categories.map((cat) => `<option value="${esc(cat.id)}"${cat.id === draft.category ? ' selected' : ''}>${esc(cat.name)}</option>`).join('')}
               </select>
             </div>
-            <div class="field">
+            <div class="field field--full">
               <label class="field__label" for="edit-tags">Tags</label>
               <input type="text" id="edit-tags" data-bind="tagsText" value="${esc(draft.tagsText)}" placeholder="Comma separated" autocomplete="off">
             </div>
@@ -473,6 +484,7 @@
     } else if (from && App.store.partById(from)) {
       draft = draftFromPart(App.store.partById(from));
       draft.name = `${draft.name} (copy)`;
+      draft.numbersText = ''; // an ID number belongs to one part
     } else {
       const fallback = App.state.category || (S.categoryById(inv, 'dev-boards') ? 'dev-boards' : inv.categories[0].id);
       draft = emptyDraft(category && S.categoryById(inv, category) ? category : fallback);
@@ -565,6 +577,14 @@
       showError('Please enter a name.', '[data-bind="name"]');
       return;
     }
+    const numbers = S.normalizeNumbers(draft.numbersText);
+    for (const number of numbers) {
+      const other = S.partByNumber(inv, number, session.isNew ? null : session.id);
+      if (other) {
+        showError(`ID number ${S.numberLabel(number)} is already used by “${other.name}”.`, '[data-bind="numbersText"]');
+        return;
+      }
+    }
     if (session.busyImages) {
       showError('Please wait until the photos are processed.');
       return;
@@ -609,6 +629,7 @@
       }
       const data = {
         name,
+        numbers,
         category: draft.category,
         description: draft.description,
         tags: draft.tagsText,
@@ -662,7 +683,7 @@
       return;
     }
     edit.dirty = true;
-    if (['name', 'description', 'notes', 'tagsText'].includes(kind)) draft[kind] = el.value;
+    if (['name', 'description', 'notes', 'tagsText', 'numbersText'].includes(kind)) draft[kind] = el.value;
     else if (kind === 'stock') draft.stock[Number(a)][b] = el.value;
     else if (kind === 'link') draft.links[Number(a)][b] = el.value;
     else if (kind === 'spec') draft.specs[a] = el.dataset.kind === 'bool' ? el.checked : el.value;
@@ -813,6 +834,14 @@
     },
     'edit-cancel'() {
       requestCloseEdit();
+    },
+    'edit-use-number'(el) {
+      if (!edit) return;
+      edit.draft.numbersText = el.dataset.number;
+      edit.dirty = true;
+      const input = editDialog().querySelector('[data-bind="numbersText"]');
+      input.value = el.dataset.number;
+      input.focus();
     },
     'edit-add-stock'() {
       edit.draft.stock.push({ location: '', qty: '' });

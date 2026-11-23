@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 FORMAT = "electronics-inventory"
-VERSION = 2  # 2: locations have a "place"
+VERSION = 3  # 2: locations have a "place"; 3: parts have "numbers"
 DEFAULT_TITLE = "Electronics Inventory"
 FIELD_TYPES = ("text", "number", "select", "multi", "bool")
 FALLBACK_CATEGORY = "other"
@@ -246,6 +246,27 @@ def normalize_locations(raw):
     return unify_places(out)
 
 
+def number_key(number):
+    """Comparison key of an ID number: case and punctuation do not matter ("B-12" = "b12")."""
+    return re.sub(r"[^a-z0-9]", "", fold(number))
+
+
+def normalize_numbers(raw):
+    """ID numbers written on a part's bag or label, e.g. "57" or "B-12" (same rules as the app)."""
+    items = raw if isinstance(raw, list) else [] if raw is None else [raw]
+    out, seen = [], set()
+    for item in items:
+        if isinstance(item, float) and item.is_integer():
+            item = int(item)
+        for piece in re.split(r"[,;\s]+", text(item)):
+            number = re.sub(r"^#+", "", piece)[:24]
+            key = number_key(number)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(number)
+    return out
+
+
 def normalize_tags(raw):
     joined = ",".join(text(item) for item in raw) if isinstance(raw, list) else text(raw)
     return [tag[:40] for tag in split_list(joined)]
@@ -332,6 +353,7 @@ def normalize_part(raw):
     return {
         "id": text(raw.get("id")).strip() or slugify(name) or "part",
         "name": name,
+        "numbers": normalize_numbers(raw.get("numbers") if raw.get("numbers") is not None else raw.get("number")),
         "category": text(raw.get("category")).strip() or FALLBACK_CATEGORY,
         "description": text(raw.get("description")).strip(),
         "tags": normalize_tags(raw.get("tags")),
@@ -466,6 +488,16 @@ def find_location(inv, code):
     return next((loc for loc in inv["locations"] if loc["code"].lower() == lower), None)
 
 
+def has_number(part, number):
+    key = number_key(number)
+    return bool(key) and any(number_key(item) == key for item in part["numbers"])
+
+
+def part_by_number(inv, number, except_id=None):
+    """The part that has this ID number, ignoring the part `except_id`."""
+    return next((part for part in inv["parts"] if part["id"] != except_id and has_number(part, number)), None)
+
+
 def places(inv):
     """Places in the order of their first location."""
     out = []
@@ -526,6 +558,7 @@ def haystack(inv, fields, part):
     """Searchable text of a part (same content as the app's search)."""
     category = find_category(inv, part["category"])
     bits = [part["id"], part["name"], part["description"], part["notes"], category["name"] if category else ""]
+    bits.extend(part["numbers"])
     bits.extend(part["tags"])
     for key, value in part["specs"].items():
         field = field_def(fields, key)

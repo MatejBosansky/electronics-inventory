@@ -7,7 +7,7 @@
   const U = App.util;
 
   const FORMAT = 'electronics-inventory';
-  const VERSION = 2; // 2: locations have a `place`
+  const VERSION = 3; // 2: locations have a `place`; 3: parts have `numbers`
   const DEFAULT_TITLE = 'Electronics Inventory';
   const FIELD_TYPES = ['text', 'number', 'select', 'multi', 'bool'];
   const FIELD_TYPE_LABELS = {
@@ -156,6 +156,32 @@
     return unifyPlaces(out);
   }
 
+  /** Comparison key of an ID number: case and punctuation do not matter ("B-12" = "b12"). */
+  function numberKey(number) {
+    return U.fold(number).replace(/[^a-z0-9]/g, '');
+  }
+
+  /**
+   * ID numbers written on a part's bag or label, e.g. "57" or "B-12". Accepts a list or text
+   * such as "12, 57"; a leading "#" is dropped and repeated numbers are removed.
+   */
+  function normalizeNumbers(raw) {
+    const items = Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw];
+    const out = [];
+    const seen = new Set();
+    for (const item of items) {
+      for (const piece of str(item).split(/[,;\s]+/)) {
+        const number = piece.replace(/^#+/, '').slice(0, 24);
+        const key = numberKey(number);
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          out.push(number);
+        }
+      }
+    }
+    return out;
+  }
+
   function normalizeTags(raw) {
     const list = Array.isArray(raw) ? raw.map(str).join(',') : str(raw);
     return U.splitList(list).map((tag) => tag.slice(0, 40));
@@ -241,6 +267,7 @@
     return {
       id: str(raw.id).trim() || U.slugify(name) || 'part',
       name,
+      numbers: normalizeNumbers(raw.numbers ?? raw.number),
       category: str(raw.category).trim() || FALLBACK_CATEGORY,
       description: str(raw.description).trim(),
       tags: normalizeTags(raw.tags),
@@ -335,6 +362,49 @@
     if (!code) return null;
     const lower = String(code).toLowerCase();
     return inv.locations.find((loc) => loc.code.toLowerCase() === lower) || null;
+  }
+
+  /** How an ID number is shown: "#57", or as it is when it has letters ("B-12"). */
+  function numberLabel(number) {
+    return /^\d+$/.test(number) ? `#${number}` : number;
+  }
+
+  function hasNumber(part, number) {
+    const key = numberKey(number);
+    return Boolean(key) && part.numbers.some((item) => numberKey(item) === key);
+  }
+
+  /** The part that has this ID number, ignoring the part `exceptId`. */
+  function partByNumber(inv, number, exceptId = null) {
+    return inv.parts.find((part) => part.id !== exceptId && hasNumber(part, number)) || null;
+  }
+
+  /**
+   * Next free ID number of each series in use, e.g. ["186", "B-13"]. A series is a prefix and a
+   * number ("57" and "B-12" are two series); those used in `categoryId` come first.
+   */
+  function nextNumbers(inv, categoryId) {
+    const series = new Map();
+    for (const part of inv.parts) {
+      for (const number of part.numbers) {
+        const match = /^(.*?)(\d+)$/.exec(number);
+        if (!match) continue;
+        const key = match[1].toLowerCase();
+        const entry = series.get(key) || { prefix: match[1], max: -1, digits: 1, count: 0, inCategory: 0 };
+        const value = Number(match[2]);
+        if (value > entry.max) {
+          entry.max = value;
+          entry.digits = match[2].length;
+        }
+        entry.count += 1;
+        if (part.category === categoryId) entry.inCategory += 1;
+        series.set(key, entry);
+      }
+    }
+    return [...series.values()]
+      .sort((a, b) => b.inCategory - a.inCategory || b.count - a.count)
+      .slice(0, 3)
+      .map((entry) => `${entry.prefix}${String(entry.max + 1).padStart(entry.digits, '0')}`);
   }
 
   /** Places in the order of their first location. */
@@ -464,6 +534,12 @@
     normalizePlace,
     unifyPlaces,
     normalizeTags,
+    normalizeNumbers,
+    numberKey,
+    numberLabel,
+    hasNumber,
+    partByNumber,
+    nextNumbers,
     ensureReferences,
     isRemoteUrl,
     fieldMap,

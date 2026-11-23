@@ -11,6 +11,7 @@
   const PARTS = [
     {
       name: 'ESP32-C6-DevKitC-1',
+      numbers: ['B-1'],
       category: 'dev-boards',
       description: 'Espressif development board with Wi-Fi 6, Bluetooth LE 5.3 and an 802.15.4 radio for Thread and Zigbee.',
       stock: [{ location: 'A1', qty: 2 }],
@@ -21,6 +22,7 @@
     },
     {
       name: 'ESP32-S3-DevKitC-1 (N16R8)',
+      numbers: ['B-2'],
       category: 'dev-boards',
       description: 'Dual-core ESP32-S3 board with 16 MB flash and 8 MB PSRAM.',
       stock: [{ location: 'A1', qty: 1 }],
@@ -71,6 +73,7 @@
     },
     {
       name: 'BME280 breakout',
+      numbers: ['1'],
       category: 'sensors',
       description: 'Temperature, humidity and pressure sensor.',
       stock: [{ location: 'A2', qty: 2 }],
@@ -78,6 +81,7 @@
     },
     {
       name: 'HC-SR04 ultrasonic sensor',
+      numbers: ['2'],
       category: 'sensors',
       description: 'Ultrasonic distance sensor.',
       stock: [{ location: 'A2', qty: 3 }, { location: 'D1', qty: 1 }],

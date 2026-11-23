@@ -1,4 +1,4 @@
-# inventory.json — data format (version 2)
+# inventory.json — data format (version 3)
 
 The whole inventory is a single JSON document, `inventory.json`, stored in the data folder next to
 the `images/` folder. The app writes it pretty-printed (2 spaces) with a stable key order, so it
@@ -13,7 +13,7 @@ file that is not valid JSON (and offers to restore a snapshot instead).
 ```json
 {
   "format": "electronics-inventory",
-  "version": 2,
+  "version": 3,
   "updatedAt": "2026-01-15T18:30:00Z",
   "settings": { "title": "Electronics Inventory" },
   "fields": [ … ],
@@ -26,7 +26,7 @@ file that is not valid JSON (and offers to restore a snapshot instead).
 | Key | Description |
 | --- | --- |
 | `format` | Always `"electronics-inventory"`. |
-| `version` | Format version. The app refuses files with a newer version than it knows and saves older ones in the current version (2 added `place` to locations). |
+| `version` | Format version. The app refuses files with a newer version than it knows and saves older ones in the current version (2 added `place` to locations, 3 `numbers` to parts). |
 | `updatedAt` | Time of the last change (ISO 8601, UTC). |
 | `settings.title` | Name shown in the header. |
 | `fields` | Property definitions (see below). If missing, the defaults are used. |
@@ -87,6 +87,7 @@ only the parts in the places you choose. Names differing only in case are merged
 {
   "id": "esp32-c6-devkitc-1",
   "name": "ESP32-C6-DevKitC-1",
+  "numbers": ["B-12"],
   "category": "dev-boards",
   "description": "Espressif development board with Wi-Fi 6, BLE 5.3 and 802.15.4.",
   "tags": ["espressif", "matter"],
@@ -115,6 +116,7 @@ only the parts in the places you choose. Names differing only in case are merged
 | --- | --- |
 | `id` | Unique, stable identifier (used in URLs: `#/part/<id>`). Generated from the name when created. |
 | `name` | Required. |
+| `numbers` | ID numbers written on the part's bag or label, e.g. `["57"]` or `["B-12"]` (usually one). Unique across parts; compared without case and punctuation (`B-12` = `b12`). The app shows them on the cards (`#57`) and finds the part when you search for the number. |
 | `category` | Category `id`. |
 | `description` | Short description (one or two sentences). |
 | `tags` | Free keywords; searchable and filterable. |

@@ -36,6 +36,12 @@
     return shown.join('');
   }
 
+  /** ID numbers of a part ("#57", "B-12"): the labels written on its bags. */
+  function numbersHtml(part, className) {
+    if (!part.numbers.length) return '';
+    return `<span class="${className}">${part.numbers.map((number) => esc(S.numberLabel(number))).join(' · ')}</span>`;
+  }
+
   function partHref(part) {
     return `#/part/${encodeURIComponent(part.id)}`;
   }
@@ -46,7 +52,7 @@
     const image = part.images[0];
     return `
       <a class="card${S.inStock(part) ? '' : ' is-out'}" href="${partHref(part)}" data-action="open-part" data-id="${esc(part.id)}">
-        <div class="card__media">${image ? ui.imageTag(image) : placeholder(category)}</div>
+        <div class="card__media">${image ? ui.imageTag(image) : placeholder(category)}${numbersHtml(part, 'card__number')}</div>
         <div class="card__body">
           <div class="card__category">${esc(category ? category.name : part.category)}</div>
           <h3 class="card__title">${esc(part.name)}</h3>
@@ -67,7 +73,7 @@
       <a class="row${S.inStock(part) ? '' : ' is-out'}" href="${partHref(part)}" data-action="open-part" data-id="${esc(part.id)}">
         <div class="row__media">${image ? ui.imageTag(image) : placeholder(category)}</div>
         <div class="row__main">
-          <h3 class="row__title">${esc(part.name)}</h3>
+          <h3 class="row__title">${numbersHtml(part, 'row__number')} ${esc(part.name)}</h3>
           <div class="row__sub">
             <span class="row__category">${esc(category ? category.name : part.category)}</span>
             ${badges.map((b) => `<span class="badge-spec">${esc(b)}</span>`).join('')}
@@ -436,6 +442,7 @@
     setPlaces,
     togglePlace,
     locationDot,
+    numbersHtml,
     placeholder,
     quantityLabel,
     get lastResult() {

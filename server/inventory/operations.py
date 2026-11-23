@@ -19,7 +19,7 @@ CATEGORY_ICONS = [
     "board", "wireless", "sensor", "display", "power", "motor", "switch", "led", "audio",
     "input", "chip", "transistor", "resistor", "plug", "usb", "wrench", "nut", "shapes", "box",
 ]
-SORTS = ("name", "updated", "created", "quantity")
+SORTS = ("name", "number", "updated", "created", "quantity")
 
 
 class Context:
@@ -256,6 +256,8 @@ def part_summary(ctx, inv, part):
         "stock": [stock_out(inv, row) for row in part["stock"]],
         "specs": part["specs"],
     }
+    if part["numbers"]:
+        out["numbers"] = part["numbers"]
     if part["tags"]:
         out["tags"] = part["tags"]
     if part["description"]:
@@ -277,6 +279,7 @@ def part_detail(ctx, inv, part):
     out = {
         "id": part["id"],
         "name": part["name"],
+        "numbers": part["numbers"],
         "category": part["category"],
         "category_name": category["name"] if category else part["category"],
         "description": part["description"],
@@ -328,9 +331,12 @@ SPECS = {
     "additionalProperties": {"type": ["string", "number", "boolean", "array", "null"]},
 }
 TAGS = {"type": "array", "items": {"type": "string"}, "description": "Free keywords."}
+NUMBERS = {"type": "array", "items": {"type": "string"},
+           "description": "ID numbers written on the part's bag or label, e.g. [\"57\"] or [\"B-12\"]; unique."}
 PART_ID = string("Part id (from search_parts or get_part).")
 NEW_PART = obj({
     "name": string("Name, e.g. ESP32-C6-DevKitC-1."),
+    "numbers": NUMBERS,
     "category": string("Category id from get_schema, e.g. dev-boards."),
     "description": string("One or two sentences."),
     "tags": TAGS,
@@ -441,7 +447,11 @@ def _query_parts(ctx, inv, args):
         parts = [part for part in parts if part["category"] == category]
     tokens = model.fold(arg_str(args, "query") or "").split()
     if tokens:
-        parts = [part for part in parts if all(token in model.haystack(inv, fields, part) for token in tokens)]
+        # Same as the app: "#57" is exactly that ID number, and "b12" also finds the ID number "B-12".
+        parts = [part for part in parts if all(
+            model.has_number(part, token) if token.startswith("#") and len(token) > 1
+            else token in model.haystack(inv, fields, part) or model.has_number(part, token)
+            for token in tokens)]
     location = arg_str(args, "location")
     if location:
         if location.lower() in ("none", "unassigned"):
@@ -452,6 +462,9 @@ def _query_parts(ctx, inv, args):
                 raise InventoryError(f'Unknown location "{location}". Known: {known_ids(inv["locations"], "code")}.',
                                      400, "unknown_location")
             parts = [part for part in parts if any(row["location"] == found["code"] for row in part["stock"])]
+    number = arg_str(args, "number")
+    if number:
+        parts = [part for part in parts if model.has_number(part, number)]
     places = arg_list(args, "place")
     if places:
         found_places = set()
@@ -481,17 +494,24 @@ def _query_parts(ctx, inv, args):
         raise InventoryError(f"'sort' must be one of {', '.join(SORTS)}.", 400, "invalid_arguments")
     if sort == "name":
         parts.sort(key=lambda part: _natural_key(part["name"]))
+    elif sort == "number":
+        parts.sort(key=lambda part: (not part["numbers"], _natural_key(part["numbers"][0]) if part["numbers"] else [],
+                                     _natural_key(part["name"])))
     elif sort in ("updated", "created"):
         key = "updatedAt" if sort == "updated" else "createdAt"
         parts.sort(key=lambda part: part[key], reverse=True)
     else:
         parts.sort(key=lambda part: (-(quantity_value(model.stock_summary(part)) or 0), _natural_key(part["name"])))
+    if len(tokens) == 1:
+        # A search for one ID number lists the part with that number first.
+        parts.sort(key=lambda part: not model.has_number(part, tokens[0]))
     return parts
 
 
 @operation("search_parts", "Search parts", "GET", "/api/parts", obj({
     "query": string("Words that must all appear (name, description, notes, tags, property values, locations)."),
     "category": string("Category id, e.g. dev-boards."),
+    "number": string("ID number written on the part's bag or label, e.g. 57 or B-12 (exact; case and dashes ignored)."),
     "location": string("Location code, or \"none\" for parts with unassigned stock."),
     "place": {"type": "array", "items": {"type": "string"},
               "description": "Place names from get_schema, e.g. [\"Place 1\", \"Place 3\"]: parts with stock in any of them."},
@@ -507,9 +527,10 @@ def _query_parts(ctx, inv, args):
     "sort": {"type": "string", "enum": list(SORTS), "description": "Default: name."},
     "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Default 50."},
     "offset": {"type": "integer", "minimum": 0},
-}), read_only=True, query=("query", "category", "location", "place", "in_stock", "tags", "sort", "limit", "offset"))
+}), read_only=True, query=("query", "category", "number", "location", "place", "in_stock", "tags", "sort", "limit",
+                           "offset"))
 def search_parts(ctx, args):
-    """Finds parts by text, category, place, location, stock and property values (e.g. boards with Thread or
+    """Finds parts by text, ID number, category, place, location, stock and property values (e.g. boards with Thread or
     Bluetooth 5.x). Returns compact summaries (stock rows name their place); use get_part for all details."""
     inv = ctx.store.load()
     parts = _query_parts(ctx, inv, args)
@@ -544,6 +565,15 @@ def get_part(ctx, args):
 
 
 # --------------------------------------------------------------------------- write operations
+
+def _require_free_numbers(inv, part):
+    """ID numbers identify one part each (they are written on its bag)."""
+    for number in part["numbers"]:
+        other = model.part_by_number(inv, number, except_id=part["id"])
+        if other:
+            raise InventoryError(f'ID number "{number}" is already used by "{other["name"]}" ({other["id"]}).', 409,
+                                 "conflict")
+
 
 def _prepare_images(ctx, name, urls, warnings, prefix=""):
     stored = []
@@ -601,6 +631,7 @@ def add_parts(ctx, args):
         specs = coerce_specs(fields, raw.get("specs"), warnings, prefix) or {}
         part = {
             "name": name,
+            "numbers": model.normalize_numbers(raw.get("numbers")),
             "category": category,
             "description": raw.get("description") or "",
             "tags": raw.get("tags") or [],
@@ -621,6 +652,7 @@ def add_parts(ctx, args):
             part_id = model.unique_id(model.slugify(raw["name"]) or "part", taken)
             part = model.normalize_part({**raw, "id": part_id, "createdAt": now, "updatedAt": now})
             part["stock"] = model.merge_stock(part["stock"])
+            _require_free_numbers(inv, part)
             notes.extend(model.ensure_references(inv, part, ctx.store.defaults))
             inv["parts"].append(part)
             taken.add(part_id)
@@ -638,6 +670,7 @@ def add_parts(ctx, args):
 @operation("update_part", "Update a part", "PATCH", "/api/parts/{id}", obj({
     "id": PART_ID,
     "name": string("New name."),
+    "numbers": {**NUMBERS, "description": "Replaces the ID numbers ([] removes them)."},
     "category": string("New category id."),
     "description": string("Replaces the description."),
     "notes": string("Replaces the notes."),
@@ -675,6 +708,8 @@ def update_part(ctx, args):
                 raw[key] = args.get(key) or ""
         if "tags" in args:
             raw["tags"] = args.get("tags") or []
+        if "numbers" in args:
+            raw["numbers"] = args.get("numbers") or []
         if "links" in args:
             raw["links"] = args.get("links") or []
         if stock is not None:
@@ -698,6 +733,7 @@ def update_part(ctx, args):
         updated = model.normalize_part({**raw, "id": part_id, "createdAt": part["createdAt"],
                                         "updatedAt": model.now_iso()})
         updated["stock"] = model.merge_stock(updated["stock"])
+        _require_free_numbers(inv, updated)
         notes = model.ensure_references(inv, updated, ctx.store.defaults)
         inv["parts"][inv["parts"].index(part)] = updated
         return part_detail(ctx, inv, updated), notes

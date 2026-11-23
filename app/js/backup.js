@@ -51,14 +51,15 @@
     for (const field of inv.fields) if (inv.parts.some((part) => part.specs[field.key] !== undefined)) specKeys.push(field.key);
     for (const part of inv.parts) for (const key of Object.keys(part.specs)) if (!specKeys.includes(key)) specKeys.push(key);
 
-    const header = ['ID', 'Name', 'Category', 'Quantity', 'Locations', 'Places', 'Tags', 'Description', 'Notes', 'Links',
-      'Images', 'Created', 'Updated', ...specKeys.map((key) => S.fieldDef(fields, key).label)];
+    const header = ['ID', 'Name', 'ID number', 'Category', 'Quantity', 'Locations', 'Places', 'Tags', 'Description', 'Notes',
+      'Links', 'Images', 'Created', 'Updated', ...specKeys.map((key) => S.fieldDef(fields, key).label)];
     const rows = [header];
     for (const part of inv.parts) {
       const category = S.categoryById(inv, part.category);
       rows.push([
         part.id,
         part.name,
+        part.numbers.join(', '),
         category ? category.name : part.category,
         S.quantityText(S.stockSummary(part)),
         part.stock.map((row) => `${row.location || 'Unassigned'}: ${row.qty ?? '?'}`).join('; '),

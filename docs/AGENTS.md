@@ -84,11 +84,11 @@ Errors are returned as MCP tool results with `isError: true`, and by REST as
 
 ### Searching
 
-`search_parts` arguments: `query` (all words must match name, description, notes, tags, property
-values or locations), `category`, `location` (`"none"` = unassigned), `place` (one or more places:
-parts with stock in any of them; REST: comma separated), `in_stock`, `tags`, `sort`
-(`name`, `updated`, `created`, `quantity`), `limit`, `offset` and `specs` — property conditions that
-must all match:
+`search_parts` arguments: `query` (all words must match name, ID numbers, description, notes, tags,
+property values or locations), `number` (exact ID number, e.g. `57` or `B-12`), `category`,
+`location` (`"none"` = unassigned), `place` (one or more places: parts with stock in any of them;
+REST: comma separated), `in_stock`, `tags`, `sort` (`name`, `number`, `updated`, `created`,
+`quantity`), `limit`, `offset` and `specs` — property conditions that must all match:
 
 | Condition | Meaning |
 | --- | --- |
@@ -116,6 +116,7 @@ joins the existing place.
 {
   "parts": [{
     "name": "ESP32-C6-DevKitC-1",
+    "numbers": ["B-12"],
     "category": "dev-boards",
     "description": "Espressif board with Wi-Fi 6, BLE 5.3 and 802.15.4.",
     "tags": ["espressif"],

@@ -20,7 +20,8 @@
     let text = haystacks.get(part);
     if (text !== undefined) return text;
     const category = S.categoryById(inv, part.category);
-    const bits = [part.id, part.name, part.description, part.notes, category ? category.name : '', ...part.tags];
+    const bits = [part.id, part.name, ...part.numbers, part.description, part.notes,
+      category ? category.name : '', ...part.tags];
     for (const [key, value] of Object.entries(part.specs)) {
       const def = S.fieldDef(fields, key);
       if (value === true) bits.push(def.label);
@@ -212,7 +213,10 @@
     if (!tokens.length) return parts;
     return parts.filter((part) => {
       const text = haystack(inv, fields, part);
-      return tokens.every((token) => text.includes(token));
+      // "#57" or "#B-12" matches exactly that ID number; "b12" also finds "B-12".
+      return tokens.every((token) => (token.length > 1 && token[0] === '#'
+        ? S.hasNumber(part, token)
+        : text.includes(token) || S.hasNumber(part, token)));
     });
   }
 
@@ -248,7 +252,8 @@
     }
     push(buildFacet(inv, fields, base, view.facets, TAGS, 'Tags', { type: 'text' }));
 
-    const results = sortParts(base.filter((part) => matchesAll(inv, fields, part, view.facets, null)), view.sort);
+    const filtered = base.filter((part) => matchesAll(inv, fields, part, view.facets, null));
+    const results = numberMatchFirst(sortParts(filtered, view.sort), view.query);
 
     const chips = [];
     for (const [key, selected] of Object.entries(view.facets)) {
@@ -268,8 +273,23 @@
     return summary.unknown && summary.total === 0 ? -1 : summary.total;
   }
 
+  /** A search for one ID number ("57", "B-12") lists the part with that number first. */
+  function numberMatchFirst(parts, query) {
+    const text = String(query || '').trim();
+    if (!text || /\s/.test(text)) return parts;
+    const exact = parts.filter((part) => S.hasNumber(part, text));
+    return exact.length ? [...exact, ...parts.filter((part) => !exact.includes(part))] : parts;
+  }
+
+  /** Parts with an ID number first, in natural order ("9" before "10", "B-2" before "B-10"). */
+  function byNumber(a, b) {
+    if (!a.numbers.length || !b.numbers.length) return (a.numbers.length ? 0 : 1) - (b.numbers.length ? 0 : 1);
+    return U.collator.compare(a.numbers[0], b.numbers[0]);
+  }
+
   const SORTS = {
     name: (a, b) => U.collator.compare(a.name, b.name),
+    number: (a, b) => byNumber(a, b) || U.collator.compare(a.name, b.name),
     updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     created: (a, b) => b.createdAt.localeCompare(a.createdAt),
     qtyDesc: (a, b) => quantity(b) - quantity(a) || U.collator.compare(a.name, b.name),
@@ -278,6 +298,7 @@
 
   const SORT_LABELS = {
     name: 'Name',
+    number: 'ID number',
     updated: 'Recently changed',
     created: 'Recently added',
     qtyDesc: 'Most in stock',

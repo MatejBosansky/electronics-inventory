@@ -8,6 +8,8 @@ sensors, displays, modules, passives and everything else in your boxes.
   type, sensor type, … — filters are built automatically from the properties your parts have.
 - **Locations with quantities**: a part can be split across several boxes (e.g. 2 in `A1`, 8 in `K2`),
   amounts can be unknown, and `−`/`+` buttons update stock when you take something out.
+- **ID numbers**: the number written on a part's bag or label (e.g. `57` or `B-12`) is shown on the
+  card; type it into the search to find the part. New parts get the next free number suggested.
 - **Places**: group boxes by where they are (e.g. Place 1 and Place 2, or the stock of an e-shop) and
   tick the places to search in; quantities and filters then count only those places.
 - **Add, edit and remove parts** in the app, including photos straight from a phone camera

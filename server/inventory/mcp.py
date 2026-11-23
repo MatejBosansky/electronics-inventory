@@ -31,6 +31,8 @@ Inventory of electronic components (development boards, sensors, displays, modul
 - Locations can belong to a place (e.g. Place 1 and Place 2, or the stock of an e-shop): get_schema
   lists the places, search_parts accepts one or more in place, and stock rows name the place of
   their location.
+- Parts can have ID numbers written on their bags or labels ("57", "B-12"): search_parts number=57 finds the
+  part; numbers are unique.
 - Before adding a part, search_parts for it; to record more pieces of an existing part use adjust_stock.
 - Property filters in search_parts: {"zigbee": true}, {"thread": "*"} (any value), {"bluetooth": ["5.0", "5.3"]},
   {"diagonal": {"min": 1}}. Thread and Bluetooth values are versions ("1.3", "5.3").
