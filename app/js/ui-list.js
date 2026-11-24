@@ -42,6 +42,19 @@
     return `<span class="${className}">${part.numbers.map((number) => esc(S.numberLabel(number))).join(' · ')}</span>`;
   }
 
+  /** "1 in use" when pieces are built into projects (they are not counted in the stock). */
+  function inUseHtml(part) {
+    if (!part.uses.length) return '';
+    const text = S.quantityText(S.useSummary(part));
+    const projects = [...new Set(part.uses.map((use) => use.project))].join(', ');
+    return `<span class="in-use" title="${esc(`In use: ${projects}`)}">${icon('wrench')}<span>${text === '?' ? 'In use' : `${esc(text)} in use`}</span></span>`;
+  }
+
+  /** Out of stock, and nothing is in use either. */
+  function isOut(part) {
+    return !S.inStock(part) && !part.uses.length;
+  }
+
   function partHref(part) {
     return `#/part/${encodeURIComponent(part.id)}`;
   }
@@ -51,14 +64,14 @@
     const badges = S.partBadges(inv, part, fields, 4);
     const image = part.images[0];
     return `
-      <a class="card${S.inStock(part) ? '' : ' is-out'}" href="${partHref(part)}" data-action="open-part" data-id="${esc(part.id)}">
+      <a class="card${isOut(part) ? ' is-out' : ''}" href="${partHref(part)}" data-action="open-part" data-id="${esc(part.id)}">
         <div class="card__media">${image ? ui.imageTag(image) : placeholder(category)}${numbersHtml(part, 'card__number')}</div>
         <div class="card__body">
           <div class="card__category">${esc(category ? category.name : part.category)}</div>
           <h3 class="card__title">${esc(part.name)}</h3>
           ${badges.length ? `<div class="badges">${badges.map((b) => `<span class="badge-spec">${esc(b)}</span>`).join('')}</div>` : ''}
           <div class="card__foot">
-            <span class="qty">${esc(quantityLabel(part))}</span>
+            <span class="card__amount"><span class="qty">${esc(quantityLabel(part))}</span>${inUseHtml(part)}</span>
             <span class="locs">${locationsHtml(inv, part)}</span>
           </div>
         </div>
@@ -70,7 +83,7 @@
     const badges = S.partBadges(inv, part, fields, 3);
     const image = part.images[0];
     return `
-      <a class="row${S.inStock(part) ? '' : ' is-out'}" href="${partHref(part)}" data-action="open-part" data-id="${esc(part.id)}">
+      <a class="row${isOut(part) ? ' is-out' : ''}" href="${partHref(part)}" data-action="open-part" data-id="${esc(part.id)}">
         <div class="row__media">${image ? ui.imageTag(image) : placeholder(category)}</div>
         <div class="row__main">
           <h3 class="row__title">${numbersHtml(part, 'row__number')} ${esc(part.name)}</h3>
@@ -81,6 +94,7 @@
         </div>
         <div class="row__side">
           <span class="qty">${esc(quantityLabel(part))}</span>
+          ${inUseHtml(part)}
           <span class="locs">${locationsHtml(inv, part, 2)}</span>
         </div>
       </a>`;

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 FORMAT = "electronics-inventory"
-VERSION = 3  # 2: locations have a "place"; 3: parts have "numbers"
+VERSION = 4  # 2: locations have a "place"; 3: parts have "numbers"; 4: parts have "uses"
 DEFAULT_TITLE = "Electronics Inventory"
 FIELD_TYPES = ("text", "number", "select", "multi", "bool")
 FALLBACK_CATEGORY = "other"
@@ -287,6 +287,42 @@ def normalize_stock(raw, legacy=None):
     return out
 
 
+def normalize_project(value):
+    """Name of a project a part is used in, e.g. "Weather station"."""
+    return text(value).strip()[:80]
+
+
+def normalize_uses(raw):
+    """Pieces built into projects: [{project, qty, note}]; they are not part of the stock."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        project = normalize_project(row.get("project"))
+        if not project:
+            continue
+        qty = row.get("qty")
+        if qty is None:
+            qty = row.get("quantity")
+        out.append({"project": project, "qty": parse_qty(qty), "note": text(row.get("note")).strip()[:200]})
+    return out
+
+
+def unify_projects(parts):
+    """Projects that differ only in case get one spelling (the first one used)."""
+    spelling = {}
+    for part in parts:
+        for use in part["uses"]:
+            key = use["project"].lower()
+            if key in spelling:
+                use["project"] = spelling[key]
+            else:
+                spelling[key] = use["project"]
+    return parts
+
+
 def normalize_spec_value(value):
     if value is None:
         return None
@@ -358,6 +394,7 @@ def normalize_part(raw):
         "description": text(raw.get("description")).strip(),
         "tags": normalize_tags(raw.get("tags")),
         "stock": normalize_stock(raw.get("stock"), raw),
+        "uses": normalize_uses(raw.get("uses")),
         "specs": normalize_specs(raw.get("specs")),
         "images": normalize_images(raw.get("images")),
         "links": normalize_links(raw.get("links")),
@@ -379,6 +416,24 @@ def merge_stock(rows):
             existing["qty"] = None
         else:
             existing["qty"] = round_qty(existing["qty"] + row["qty"])
+    return list(merged.values())
+
+
+def merge_uses(rows):
+    """Merges uses of the same project: amounts add up, the first note is kept."""
+    merged = {}
+    for row in rows:
+        key = row["project"].lower()
+        if key not in merged:
+            merged[key] = {"project": row["project"], "qty": row.get("qty"), "note": row.get("note") or ""}
+            continue
+        existing = merged[key]
+        if existing["qty"] is None or row.get("qty") is None:
+            existing["qty"] = None
+        else:
+            existing["qty"] = round_qty(existing["qty"] + row["qty"])
+        if not existing["note"]:
+            existing["note"] = row.get("note") or ""
     return list(merged.values())
 
 
@@ -451,6 +506,7 @@ def normalize_inventory(raw, defaults):
         ids.add(part["id"])
         ensure_references(inv, part, defaults)
         inv["parts"].append(part)
+    unify_projects(inv["parts"])
     return inv
 
 
@@ -518,6 +574,22 @@ def place_of(inv, code):
     return location["place"] if location else ""
 
 
+def projects(inv):
+    """Projects in the order they were first used."""
+    out = []
+    for part in inv["parts"]:
+        for use in part["uses"]:
+            if use["project"] not in out:
+                out.append(use["project"])
+    return out
+
+
+def find_project(inv, name):
+    """The stored spelling of a project name (case-insensitive), or None."""
+    lower = normalize_project(name).lower()
+    return next((project for project in projects(inv) if project.lower() == lower), None) if lower else None
+
+
 def find_part(inv, part_id):
     return next((part for part in inv["parts"] if part["id"] == part_id), None)
 
@@ -536,6 +608,19 @@ def stock_summary(part):
         label = f"{total}+"
     else:
         label = str(total)
+    return {"total": total, "unknown": unknown, "text": label}
+
+
+def use_summary(part):
+    """Pieces in use, like stock_summary."""
+    total, unknown = 0, False
+    for use in part["uses"]:
+        if use["qty"] is None:
+            unknown = True
+        else:
+            total += use["qty"]
+    total = round_qty(total)
+    label = "?" if unknown and total == 0 else f"{total}+" if unknown else str(total)
     return {"total": total, "unknown": unknown, "text": label}
 
 
@@ -570,5 +655,7 @@ def haystack(inv, fields, part):
         location = find_location(inv, row["location"])
         if location:
             bits.extend([location["code"], location["name"]])
+    for use in part["uses"]:
+        bits.extend([use["project"], use["note"]])
     bits.extend(link["label"] for link in part["links"])
     return fold(" \u0001 ".join(text(bit) for bit in bits))

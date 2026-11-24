@@ -7,7 +7,7 @@
   const U = App.util;
 
   const FORMAT = 'electronics-inventory';
-  const VERSION = 3; // 2: locations have a `place`; 3: parts have `numbers`
+  const VERSION = 4; // 2: locations have a `place`; 3: parts have `numbers`; 4: parts have `uses`
   const DEFAULT_TITLE = 'Electronics Inventory';
   const FIELD_TYPES = ['text', 'number', 'select', 'multi', 'bool'];
   const FIELD_TYPE_LABELS = {
@@ -202,6 +202,37 @@
       }));
   }
 
+  /** Name of a project a part is used in, e.g. "Weather station". */
+  function normalizeProject(value) {
+    return str(value).trim().slice(0, 80);
+  }
+
+  /** Pieces built into projects: [{ project, qty, note }]; they are not part of the stock. */
+  function normalizeUses(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const row of raw) {
+      if (!row || typeof row !== 'object') continue;
+      const project = normalizeProject(row.project);
+      if (!project) continue;
+      out.push({ project, qty: U.parseQty(row.qty ?? row.quantity), note: str(row.note).trim().slice(0, 200) });
+    }
+    return out;
+  }
+
+  /** Projects that differ only in case get one spelling (the first one used). */
+  function unifyProjects(parts) {
+    const spelling = new Map();
+    for (const part of parts) {
+      for (const use of part.uses) {
+        const key = use.project.toLowerCase();
+        if (spelling.has(key)) use.project = spelling.get(key);
+        else spelling.set(key, use.project);
+      }
+    }
+    return parts;
+  }
+
   function normalizeSpecValue(value) {
     if (value === null || value === undefined) return undefined;
     if (typeof value === 'boolean') return value;
@@ -272,6 +303,7 @@
       description: str(raw.description).trim(),
       tags: normalizeTags(raw.tags),
       stock: normalizeStock(raw.stock, raw),
+      uses: normalizeUses(raw.uses),
       specs: normalizeSpecs(raw.specs),
       images: normalizeImages(raw.images),
       links: normalizeLinks(raw.links),
@@ -344,6 +376,7 @@
       ensureReferences(inv, part);
       inv.parts.push(part);
     }
+    unifyProjects(inv.parts);
     return inv;
   }
 
@@ -483,6 +516,46 @@
     return part.stock.some((row) => row.qty === null || row.qty === undefined || row.qty > 0);
   }
 
+  /** Pieces in use: { total, unknown, rows } like stockSummary. */
+  function useSummary(part) {
+    let total = 0;
+    let unknown = false;
+    for (const use of part.uses) {
+      if (use.qty === null || use.qty === undefined) unknown = true;
+      else total += use.qty;
+    }
+    return { total: U.roundQty(total), unknown, rows: part.uses.length };
+  }
+
+  /** Projects in the order they were first used. */
+  function projects(inv) {
+    const out = [];
+    for (const part of inv.parts) for (const use of part.uses) if (!out.includes(use.project)) out.push(use.project);
+    return out;
+  }
+
+  /** The stored spelling of a project name (case-insensitive), or null. */
+  function projectByName(inv, name) {
+    const lower = normalizeProject(name).toLowerCase();
+    return lower ? projects(inv).find((project) => project.toLowerCase() === lower) || null : null;
+  }
+
+  /** Merges uses of the same project: amounts add up, the first note is kept. */
+  function mergeUses(rows) {
+    const map = new Map();
+    for (const row of rows) {
+      const key = row.project.toLowerCase();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { project: row.project, qty: row.qty ?? null, note: row.note || '' });
+        continue;
+      }
+      existing.qty = existing.qty === null || row.qty === null || row.qty === undefined ? null : U.roundQty(existing.qty + row.qty);
+      if (!existing.note) existing.note = row.note || '';
+    }
+    return [...map.values()];
+  }
+
   /** Merges stock rows that point to the same location. */
   function mergeStock(rows) {
     const map = new Map();
@@ -535,6 +608,9 @@
     unifyPlaces,
     normalizeTags,
     normalizeNumbers,
+    normalizeProject,
+    normalizeUses,
+    unifyProjects,
     numberKey,
     numberLabel,
     hasNumber,
@@ -552,9 +628,13 @@
     specText,
     partBadges,
     stockSummary,
+    useSummary,
     quantityText,
     inStock,
     mergeStock,
+    mergeUses,
+    projects,
+    projectByName,
     fieldKeyFromLabel,
   };
 })(window.App = window.App || {});

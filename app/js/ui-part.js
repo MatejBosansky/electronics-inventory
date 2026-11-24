@@ -65,6 +65,190 @@
       ${part.stock.length > 1 ? `<p class="stock__total">Total <strong>${esc(S.quantityText(summary))}</strong></p>` : ''}`;
   }
 
+  /** Pieces built into projects, with buttons to return them or change the record. */
+  function usesHtml(part) {
+    if (!part.uses.length) return '';
+    return `
+      <section class="panel">
+        <h3 class="panel__title">In use</h3>
+        <ul class="uses">
+          ${part.uses.map((use) => `
+            <li class="use">
+              <span class="use__qty"${use.qty === null ? ' title="Amount unknown"' : ''}>${esc(use.qty === null ? '?' : use.qty)}×</span>
+              <div class="use__main">
+                <button type="button" class="link-btn use__project" data-action="project-show" data-project="${esc(use.project)}"
+                  title="Show all parts in this project">${esc(use.project)}</button>
+                ${use.note ? `<span class="use__note">${U.linkify(use.note)}</span>` : ''}
+              </div>
+              <div class="use__actions">
+                <button type="button" class="btn btn--sm" data-action="use-return" data-project="${esc(use.project)}">Return</button>
+                <button type="button" class="btn btn--icon btn--sm" data-action="use-edit" data-project="${esc(use.project)}"
+                  title="Edit" aria-label="Edit the use in ${esc(use.project)}">${icon('edit')}</button>
+              </div>
+            </li>`).join('')}
+        </ul>
+      </section>`;
+  }
+
+  /** "A1 · Blue box (2 pcs)" for choosing a stock row. */
+  function stockOptionLabel(inv, row) {
+    const location = S.locationByCode(inv, row.location);
+    const name = location && location.name !== location.code ? ` · ${location.name}` : '';
+    const amount = row.qty === null ? 'amount unknown' : `${row.qty} ${row.qty === 1 ? 'pc' : 'pcs'}`;
+    return `${row.location || 'Unassigned'}${name} (${amount})`;
+  }
+
+  /** Puts pieces of a part into a project; they leave the stock row chosen in "Taken from". */
+  function useDialog(part) {
+    const inv = App.store.inv;
+    const available = part.stock.find((row) => row.qty === null || row.qty > 0);
+    const body = `
+      <div class="form-grid">
+        <div class="field field--full">
+          <label class="field__label" for="use-project">Project <em class="req">*</em></label>
+          <input type="text" id="use-project" name="project" maxlength="80" list="dl-projects" autocomplete="off" required
+            placeholder="e.g. Weather station">
+          ${datalist('dl-projects', S.projects(inv))}
+        </div>
+        <div class="field">
+          <label class="field__label" for="use-qty">Pieces <em class="req">*</em></label>
+          <input type="text" id="use-qty" name="qty" value="1" inputmode="decimal" autocomplete="off" required>
+        </div>
+        ${part.stock.length ? `
+          <div class="field">
+            <label class="field__label" for="use-from">Taken from</label>
+            <select id="use-from" name="from">
+              ${part.stock.map((row) => `<option value="loc:${esc(row.location || '')}"${row === available ? ' selected' : ''}${row.qty === 0 ? ' disabled' : ''}>
+                ${esc(stockOptionLabel(inv, row))}</option>`).join('')}
+              <option value="none"${available ? '' : ' selected'}>Not from stock</option>
+            </select>
+          </div>` : ''}
+        <div class="field field--full">
+          <label class="field__label" for="use-note">Note</label>
+          <input type="text" id="use-note" name="note" maxlength="200" autocomplete="off"
+            placeholder="Where or how, e.g. sensor on GPIO 4">
+        </div>
+      </div>
+      <p class="field__hint">The pieces leave the stock and are listed under “In use” until you return them.</p>`;
+    return ui.formDialog({
+      title: `Use ${part.name}`,
+      body,
+      submitLabel: 'Use in project',
+      async onSubmit(data) {
+        if (!S.normalizeProject(data.get('project'))) throw new Error('Please enter a project.');
+        const qty = U.parseQty(String(data.get('qty') || ''));
+        if (!qty) throw new Error('Please enter how many pieces are used.');
+        const from = String(data.get('from') || 'none');
+        const project = await App.store.useInProject(part.id, {
+          project: data.get('project'),
+          qty,
+          note: data.get('note'),
+          takeFrom: from.startsWith('loc:'),
+          location: from.startsWith('loc:') ? from.slice(4) || null : null,
+        });
+        ui.toast(`${U.plural(qty, 'piece')} in use in ${project}.`, { timeout: 3000 });
+        return project;
+      },
+    });
+  }
+
+  /** Takes pieces out of a project and puts them back into a location. */
+  function returnDialog(part, use) {
+    const inv = App.store.inv;
+    const own = part.stock.map((row) => row.location || '');
+    const others = inv.locations.filter((loc) => !own.some((code) => code.toLowerCase() === loc.code.toLowerCase()));
+    const selected = own.length ? own[0] : defaultLocation(inv);
+    const option = (code, label) => `<option value="loc:${esc(code)}"${code.toLowerCase() === selected.toLowerCase() ? ' selected' : ''}>${esc(label)}</option>`;
+    const body = `
+      <div class="form-grid">
+        <div class="field">
+          <label class="field__label" for="ret-qty">Pieces</label>
+          <input type="text" id="ret-qty" name="qty" value="${esc(use.qty === null ? '' : use.qty)}" inputmode="decimal"
+            autocomplete="off" placeholder="All">
+        </div>
+        <div class="field">
+          <label class="field__label" for="ret-to">Put back in</label>
+          <select id="ret-to" name="to">
+            ${part.stock.map((row) => option(row.location || '', stockOptionLabel(inv, row))).join('')}
+            ${others.length ? `<optgroup label="${part.stock.length ? 'Other locations' : 'Locations'}">
+              ${others.map((loc) => option(loc.code, loc.name !== loc.code ? `${loc.code} · ${loc.name}` : loc.code)).join('')}
+            </optgroup>` : ''}
+            ${own.includes('') ? '' : option('', 'Unassigned')}
+          </select>
+        </div>
+      </div>
+      <p class="field__hint">${use.qty === null ? 'The amount in use is unknown; leave Pieces empty to return all of them.'
+        : `${U.plural(use.qty, 'piece')} in use in ${esc(use.project)}.`}</p>`;
+    return ui.formDialog({
+      title: `Return from ${use.project}`,
+      body,
+      submitLabel: 'Return',
+      async onSubmit(data) {
+        const qtyText = String(data.get('qty') || '').trim();
+        if (qtyText && !U.parseQty(qtyText)) throw new Error(`“${qtyText}” is not a valid amount.`);
+        const location = String(data.get('to') || 'loc:').slice(4) || null;
+        const amount = await App.store.returnFromProject(part.id, { project: use.project, qty: qtyText || null, putBack: true, location });
+        ui.toast(`${amount === null ? 'Pieces' : U.plural(amount, 'piece')} back in ${location || 'Unassigned'}.`, { timeout: 3000 });
+      },
+    });
+  }
+
+  /** Corrects a use (project, amount, note) without touching the stock, or removes it. */
+  function editUseDialog(part, use) {
+    const inv = App.store.inv;
+    const body = `
+      <div class="form-grid">
+        <div class="field field--full">
+          <label class="field__label" for="use-project">Project <em class="req">*</em></label>
+          <input type="text" id="use-project" name="project" value="${esc(use.project)}" maxlength="80" list="dl-projects"
+            autocomplete="off" required>
+          ${datalist('dl-projects', S.projects(inv))}
+        </div>
+        <div class="field">
+          <label class="field__label" for="use-qty">Pieces</label>
+          <input type="text" id="use-qty" name="qty" value="${esc(use.qty === null ? '' : use.qty)}" inputmode="decimal"
+            autocomplete="off" placeholder="?">
+        </div>
+        <div class="field field--full">
+          <label class="field__label" for="use-note">Note</label>
+          <input type="text" id="use-note" name="note" value="${esc(use.note)}" maxlength="200" autocomplete="off"
+            placeholder="Where or how it is used">
+        </div>
+      </div>
+      <p class="field__hint">This corrects the record only; the stock does not change. To put pieces back in a box, use Return.</p>
+      <input type="hidden" name="intent" value="save">
+      <button type="button" class="link-btn link-btn--danger use-remove" data-remove>Remove from this project…</button>`;
+    return ui.formDialog({
+      title: `In use in ${use.project}`,
+      body,
+      submitLabel: 'Save',
+      onRender(form) {
+        form.querySelector('[data-remove]').addEventListener('click', () => {
+          form.elements.namedItem('intent').value = 'remove';
+          form.requestSubmit();
+        });
+      },
+      async onSubmit(data, form) {
+        if (data.get('intent') === 'remove') {
+          form.elements.namedItem('intent').value = 'save';
+          const ok = await ui.confirm({
+            title: `Remove ${part.name} from ${use.project}?`,
+            message: 'Do this when it is used up, broken or given away. The stock does not change.',
+            confirmLabel: 'Remove',
+            danger: true,
+          });
+          if (!ok) return false;
+          await App.store.saveUse(part.id, use.project, null);
+          ui.toast(`Removed from ${use.project}.`, { timeout: 3000 });
+          return true;
+        }
+        if (!S.normalizeProject(data.get('project'))) throw new Error('Please enter a project.');
+        await App.store.saveUse(part.id, use.project, { project: data.get('project'), qty: data.get('qty'), note: data.get('note') });
+        return true;
+      },
+    });
+  }
+
   function specsHtml(inv, part) {
     const fields = S.fieldMap(inv);
     const keys = S.specKeysFor(inv, part);
@@ -121,9 +305,13 @@
           </div>
           ${part.description ? `<p class="detail__desc">${U.linkify(part.description)}</p>` : ''}
           <section class="panel">
-            <h3 class="panel__title">Stock</h3>
+            <div class="panel__head">
+              <h3 class="panel__title">Stock</h3>
+              <button type="button" class="btn btn--sm" data-action="use-part">${icon('wrench')}<span>Use in project</span></button>
+            </div>
             ${stockHtml(inv, part)}
           </section>
+          ${usesHtml(part)}
           ${specs ? `<section class="panel"><h3 class="panel__title">Properties</h3>${specs}</section>` : ''}
           ${part.notes ? `<section class="panel"><h3 class="panel__title">Notes</h3><div class="notes">${U.linkify(part.notes)}</div></section>` : ''}
           ${part.links.length ? `
@@ -186,6 +374,7 @@
       tagsText: '',
       numbersText: '',
       stock: [{ location: defaultLocation(App.store.inv), qty: '1' }],
+      uses: [],
       specs: {},
       images: [],
       links: [],
@@ -201,6 +390,7 @@
       tagsText: part.tags.join(', '),
       numbersText: part.numbers.join(', '),
       stock: part.stock.map((row) => ({ location: row.location || '', qty: row.qty === null ? '' : String(row.qty) })),
+      uses: part.uses.map((use) => ({ ...use })), // changed on the part page, kept as they are here
       specs: structuredClone(part.specs),
       images: part.images.map((image) => ({ ...image })),
       links: part.links.map((link) => ({ ...link })),
@@ -431,6 +621,10 @@
               <span class="muted small">Leave the amount empty when unknown.</span>
             </div>
             ${stockEditorHtml(draft)}
+            ${draft.uses.length ? `
+              <p class="edit-uses muted small">${icon('wrench')}<span>Also in use, not counted here:
+                ${esc(draft.uses.map((use) => `${use.qty === null ? '?' : use.qty} × ${use.project}`).join(', '))}.
+                Return or change it on the part page.</span></p>` : ''}
           </section>
           <section class="form-section">
             <h3 class="form-section__title">Properties</h3>
@@ -442,7 +636,7 @@
           </section>
           <section class="form-section">
             <h3 class="form-section__title"><label for="edit-notes">Notes</label></h3>
-            <textarea id="edit-notes" data-bind="notes" rows="5" placeholder="Pinout, purchase details, projects it is used in…">${esc(draft.notes)}</textarea>
+            <textarea id="edit-notes" data-bind="notes" rows="5" placeholder="Pinout, purchase details…">${esc(draft.notes)}</textarea>
           </section>
           <p class="form-error" role="alert" hidden></p>
         </div>
@@ -485,6 +679,7 @@
       draft = draftFromPart(App.store.partById(from));
       draft.name = `${draft.name} (copy)`;
       draft.numbersText = ''; // an ID number belongs to one part
+      draft.uses = []; // the copy is another piece, not built into those projects
     } else {
       const fallback = App.state.category || (S.categoryById(inv, 'dev-boards') ? 'dev-boards' : inv.categories[0].id);
       draft = emptyDraft(category && S.categoryById(inv, category) ? category : fallback);
@@ -634,6 +829,7 @@
         description: draft.description,
         tags: draft.tagsText,
         stock,
+        uses: draft.uses,
         specs: buildSpecs(App.store.inv, draft.specs),
         images: draft.images.map((image) => (image.thumb ? { src: image.src, thumb: image.thumb } : { src: image.src })),
         links,
@@ -818,6 +1014,31 @@
       } catch (err) {
         ui.errorToast(err);
       }
+    },
+    'use-part'() {
+      const part = App.store.partById(detailId);
+      if (part) useDialog(part);
+    },
+    'use-return'(el) {
+      const part = App.store.partById(detailId);
+      const use = part && part.uses.find((item) => item.project === el.dataset.project);
+      if (use) returnDialog(part, use);
+    },
+    'use-edit'(el) {
+      const part = App.store.partById(detailId);
+      const use = part && part.uses.find((item) => item.project === el.dataset.project);
+      if (use) editUseDialog(part, use);
+    },
+    'project-show'(el) {
+      // All parts of the project, wherever they came from.
+      const state = App.state;
+      state.category = null;
+      state.places = [];
+      App.main.savePrefs();
+      state.facets = { [App.filters.PROJECT]: new Set([el.dataset.project]) };
+      App.main.setQuery('', { render: false });
+      App.nav.back('#/');
+      App.main.renderSoon();
     },
     'view-image'(el) {
       const part = App.store.partById(detailId);

@@ -226,6 +226,46 @@ def stock_rows(value, prefix=""):
     return rows
 
 
+def use_rows(value, prefix=""):
+    """Validates a list of uses ({project, qty, note}); qty defaults to 1."""
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise InventoryError(f"{prefix}'uses' must be a list of {{project, qty, note}}.", 400, "invalid_arguments")
+    rows = []
+    for row in value:
+        if not isinstance(row, dict) or not model.normalize_project(row.get("project")):
+            raise InventoryError(f"{prefix}each use needs a 'project' name.", 400, "invalid_arguments")
+        qty = row.get("qty", row.get("quantity", 1))
+        if qty is not None and model.parse_qty(qty) is None and str(qty).strip() not in ("", "?"):
+            raise InventoryError(f"{prefix}invalid quantity {qty!r} for project {row.get('project')!r}.", 400,
+                                 "invalid_arguments")
+        if model.parse_qty(qty) == 0:
+            raise InventoryError(f"{prefix}the amount in project {row.get('project')!r} must be more than 0.", 400,
+                                 "invalid_arguments")
+        rows.append({"project": row.get("project"), "qty": qty, "note": row.get("note") or ""})
+    return rows
+
+
+def _project_name(inv, name, part=None):
+    """A project name spelled like other parts already use it (case-insensitive); `part` is not looked at."""
+    lower = model.normalize_project(name).lower()
+    for other in inv["parts"]:
+        if other is part:
+            continue
+        for use in other["uses"]:
+            if use["project"].lower() == lower:
+                return use["project"]
+    return model.normalize_project(name)
+
+
+def _canonical_uses(inv, uses, part=None):
+    """Spells project names like the other parts do and merges uses of the same project."""
+    for use in uses:
+        use["project"] = _project_name(inv, use["project"], part)
+    return model.merge_uses(uses)
+
+
 # --------------------------------------------------------------------------- output helpers
 
 def quantity_value(summary):
@@ -256,6 +296,8 @@ def part_summary(ctx, inv, part):
         "stock": [stock_out(inv, row) for row in part["stock"]],
         "specs": part["specs"],
     }
+    if part["uses"]:
+        out["uses"] = part["uses"]
     if part["numbers"]:
         out["numbers"] = part["numbers"]
     if part["tags"]:
@@ -287,6 +329,7 @@ def part_detail(ctx, inv, part):
         "quantity": quantity_value(summary),
         "quantity_text": summary["text"],
         "stock": [],
+        "uses": part["uses"],
         "specs": part["specs"],
         "properties": [
             {"key": key, "label": model.field_def(fields, key)["label"],
@@ -333,6 +376,11 @@ SPECS = {
 TAGS = {"type": "array", "items": {"type": "string"}, "description": "Free keywords."}
 NUMBERS = {"type": "array", "items": {"type": "string"},
            "description": "ID numbers written on the part's bag or label, e.g. [\"57\"] or [\"B-12\"]; unique."}
+USE_LIST = {"type": "array", "items": obj({
+    "project": string("Project name, e.g. Weather station (reuse names from get_schema)."),
+    "qty": {"type": ["number", "null"], "minimum": 0, "description": "Pieces in the project (default 1; null = unknown)."},
+    "note": string("Optional short note: where or how it is used."),
+}, required=["project"]), "description": "Pieces built into projects. They are not counted in the stock."}
 PART_ID = string("Part id (from search_parts or get_part).")
 NEW_PART = obj({
     "name": string("Name, e.g. ESP32-C6-DevKitC-1."),
@@ -341,6 +389,7 @@ NEW_PART = obj({
     "description": string("One or two sentences."),
     "tags": TAGS,
     "stock": STOCK_LIST,
+    "uses": {**USE_LIST, "description": USE_LIST["description"] + " For parts that are already in a project."},
     "specs": SPECS,
     "links": LINK_LIST,
     "notes": string("Free text (pinout, purchase details, …)."),
@@ -353,11 +402,14 @@ NEW_PART = obj({
 
 @operation("get_overview", "Inventory overview", "GET", "/api/overview", obj({}), read_only=True)
 def get_overview(ctx, args):
-    """Counts of parts per category, place and location, stock status and recently changed parts. A good first call."""
+    """Counts of parts per category, place, location and project, stock status and recently changed parts.
+    A good first call."""
     inv = ctx.store.load()
     parts = inv["parts"]
-    per_category, per_location, per_place, unassigned = {}, {}, {}, 0
+    per_category, per_location, per_place, per_project, unassigned = {}, {}, {}, {}, 0
     for part in parts:
+        for project in {use["project"] for use in part["uses"]}:
+            per_project[project] = per_project.get(project, 0) + 1
         per_category[part["category"]] = per_category.get(part["category"], 0) + 1
         codes = {row["location"] for row in part["stock"] if row["location"]}
         for code in codes:
@@ -374,6 +426,7 @@ def get_overview(ctx, args):
         "parts": len(parts),
         "pieces_known": model.round_qty(sum(summary["total"] for summary in summaries)),
         "out_of_stock": sum(1 for part in parts if not model.in_stock(part)),
+        "in_use": sum(1 for part in parts if part["uses"]),
         "unknown_quantity": sum(1 for summary in summaries if summary["unknown"]),
         "unassigned_or_unstored": unassigned,
         "categories": [{"id": cat["id"], "name": cat["name"], "parts": per_category.get(cat["id"], 0)}
@@ -382,6 +435,7 @@ def get_overview(ctx, args):
                     "parts": per_place.get(place, 0)} for place in model.places(inv)],
         "locations": [{"code": loc["code"], "name": loc["name"], "place": loc["place"] or None,
                        "parts": per_location.get(loc["code"], 0)} for loc in inv["locations"]],
+        "projects": [{"name": project, "parts": per_project[project]} for project in model.projects(inv)],
         "recently_changed": [{"id": part["id"], "name": part["name"], "updatedAt": part["updatedAt"]}
                              for part in recent],
         "app_url": ctx.base_url,
@@ -390,14 +444,15 @@ def get_overview(ctx, args):
 
 @operation("get_schema", "Categories, properties and locations", "GET", "/api/schema", obj({}), read_only=True)
 def get_schema(ctx, args):
-    """Category ids, property definitions (key, label, type, unit, suggested values), location codes and the
-    places the locations belong to. Reuse these when adding or updating parts."""
+    """Category ids, property definitions (key, label, type, unit, suggested values), location codes, the
+    places the locations belong to and the projects parts are used in. Reuse these when adding or updating parts."""
     inv = ctx.store.load()
     return {
         "categories": inv["categories"],
         "fields": inv["fields"],
         "locations": inv["locations"],
         "places": model.places(inv),
+        "projects": model.projects(inv),
         "field_types": {
             "text": "free text", "number": "number (unit in 'unit')", "select": "one value, suggestions in 'options'",
             "multi": "list of values, suggestions in 'options'", "bool": "true / false",
@@ -476,6 +531,19 @@ def _query_parts(ctx, inv, args):
             found_places.add(found_place)
         codes = {loc["code"] for loc in inv["locations"] if loc["place"] in found_places}
         parts = [part for part in parts if any(row["location"] in codes for row in part["stock"])]
+    projects = arg_list(args, "project")
+    if projects:
+        found_projects = set()
+        for project in projects:
+            found_project = model.find_project(inv, project)
+            if not found_project:
+                known = ", ".join(model.projects(inv)) or "none yet (see use_part)"
+                raise InventoryError(f'Unknown project "{project}". Known: {known}.', 400, "unknown_project")
+            found_projects.add(found_project)
+        parts = [part for part in parts if any(use["project"] in found_projects for use in part["uses"])]
+    used = arg_bool(args, "in_use")
+    if used is not None:
+        parts = [part for part in parts if bool(part["uses"]) == used]
     stocked = arg_bool(args, "in_stock")
     if stocked is not None:
         parts = [part for part in parts if model.in_stock(part) == stocked]
@@ -509,12 +577,15 @@ def _query_parts(ctx, inv, args):
 
 
 @operation("search_parts", "Search parts", "GET", "/api/parts", obj({
-    "query": string("Words that must all appear (name, description, notes, tags, property values, locations)."),
+    "query": string("Words that must all appear (name, description, notes, tags, property values, locations, projects)."),
     "category": string("Category id, e.g. dev-boards."),
     "number": string("ID number written on the part's bag or label, e.g. 57 or B-12 (exact; case and dashes ignored)."),
     "location": string("Location code, or \"none\" for parts with unassigned stock."),
     "place": {"type": "array", "items": {"type": "string"},
               "description": "Place names from get_schema, e.g. [\"Place 1\", \"Place 3\"]: parts with stock in any of them."},
+    "project": {"type": "array", "items": {"type": "string"},
+                "description": "Project names from get_schema, e.g. [\"Weather station\"]: parts in use in any of them."},
+    "in_use": {"type": "boolean", "description": "true = only parts built into projects, false = only parts not in use."},
     "in_stock": {"type": "boolean", "description": "true = only parts with stock, false = only out of stock."},
     "tags": {"type": "array", "items": {"type": "string"}, "description": "Parts having any of these tags."},
     "specs": {
@@ -527,11 +598,12 @@ def _query_parts(ctx, inv, args):
     "sort": {"type": "string", "enum": list(SORTS), "description": "Default: name."},
     "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Default 50."},
     "offset": {"type": "integer", "minimum": 0},
-}), read_only=True, query=("query", "category", "number", "location", "place", "in_stock", "tags", "sort", "limit",
-                           "offset"))
+}), read_only=True, query=("query", "category", "number", "location", "place", "project", "in_use", "in_stock", "tags",
+                           "sort", "limit", "offset"))
 def search_parts(ctx, args):
-    """Finds parts by text, ID number, category, place, location, stock and property values (e.g. boards with Thread or
-    Bluetooth 5.x). Returns compact summaries (stock rows name their place); use get_part for all details."""
+    """Finds parts by text, ID number, category, place, location, project, stock and property values (e.g. boards with
+    Thread or Bluetooth 5.x). Returns compact summaries (stock rows name their place, uses the projects the part is
+    built into); use get_part for all details."""
     inv = ctx.store.load()
     parts = _query_parts(ctx, inv, args)
     limit = int(arg_number(args, "limit") or 50)
@@ -547,7 +619,8 @@ def search_parts(ctx, args):
     "include_image": {"type": "boolean", "description": "MCP only: also return the cover photo (thumbnail)."},
 }, required=["id"]), read_only=True, query=("include_image",))
 def get_part(ctx, args):
-    """All details of one part: stock per location, properties with labels, links, notes and photo URLs."""
+    """All details of one part: stock per location, pieces in use in projects, properties with labels, links, notes
+    and photo URLs."""
     inv = ctx.store.load()
     part = require_part(inv, arg_str(args, "id", required=True))
     result = part_detail(ctx, inv, part)
@@ -636,6 +709,7 @@ def add_parts(ctx, args):
             "description": raw.get("description") or "",
             "tags": raw.get("tags") or [],
             "stock": stock_rows(raw.get("stock"), prefix) or [],
+            "uses": use_rows(raw.get("uses"), prefix) or [],
             "specs": {key: value for key, value in specs.items() if value is not None},
             "links": raw.get("links") or [],
             "notes": raw.get("notes") or "",
@@ -652,6 +726,7 @@ def add_parts(ctx, args):
             part_id = model.unique_id(model.slugify(raw["name"]) or "part", taken)
             part = model.normalize_part({**raw, "id": part_id, "createdAt": now, "updatedAt": now})
             part["stock"] = model.merge_stock(part["stock"])
+            part["uses"] = _canonical_uses(inv, part["uses"])
             _require_free_numbers(inv, part)
             notes.extend(model.ensure_references(inv, part, ctx.store.defaults))
             inv["parts"].append(part)
@@ -678,6 +753,8 @@ def add_parts(ctx, args):
     "specs": {**SPECS, "description": SPECS["description"] + " Merged into the existing values; null removes a property."},
     "replace_specs": {"type": "boolean", "description": "Replace all properties instead of merging."},
     "stock": {**STOCK_LIST, "description": "Replaces all stock rows (to change one amount use adjust_stock)."},
+    "uses": {**USE_LIST, "description": "Replaces the list of pieces in use ([] removes them; the stock does not change). "
+                                        "To move pieces between the stock and a project use use_part / return_part."},
     "links": {**LINK_LIST, "description": "Replaces all links."},
     "images": {"type": "array", "items": {"type": "string"},
                "description": "Existing image 'src' paths to keep, in order (first = cover). Omitted ones are "
@@ -690,6 +767,7 @@ def update_part(ctx, args):
     warnings = []
     specs = coerce_specs(model.field_map(inv), args.get("specs"), warnings)
     stock = stock_rows(args.get("stock"))
+    uses = use_rows(args.get("uses"))
 
     def mutate(inv):
         part = require_part(inv, part_id)
@@ -714,6 +792,8 @@ def update_part(ctx, args):
             raw["links"] = args.get("links") or []
         if stock is not None:
             raw["stock"] = stock
+        if uses is not None:
+            raw["uses"] = uses
         if specs is not None:
             merged = {} if arg_bool(args, "replace_specs") else dict(part["specs"])
             for key, value in specs.items():
@@ -733,6 +813,8 @@ def update_part(ctx, args):
         updated = model.normalize_part({**raw, "id": part_id, "createdAt": part["createdAt"],
                                         "updatedAt": model.now_iso()})
         updated["stock"] = model.merge_stock(updated["stock"])
+        if uses is not None:
+            updated["uses"] = _canonical_uses(inv, updated["uses"], part)
         _require_free_numbers(inv, updated)
         notes = model.ensure_references(inv, updated, ctx.store.defaults)
         inv["parts"][inv["parts"].index(part)] = updated
@@ -777,8 +859,8 @@ def _canonical_location(inv, location):
     "delta": {"type": "number", "description": "Pieces to add (positive) or take out (negative)."},
 }, required=["id", "location", "delta"]))
 def adjust_stock(ctx, args):
-    """Adds or removes pieces at one location, e.g. delta -2 when two pieces were used. Creates the
-    location row when adding to a location the part is not stored in yet."""
+    """Adds or removes pieces at one location, e.g. delta -2 when two pieces were used up (pieces built into a
+    project: use_part). Creates the location row when adding to a location the part is not stored in yet."""
     part_id = arg_str(args, "id", required=True)
     delta = arg_number(args, "delta", required=True)
     if delta == 0:
@@ -876,6 +958,126 @@ def move_stock(ctx, args):
         notes = model.ensure_references(inv, part, ctx.store.defaults)
         return {"id": part_id, "stock": part["stock"], "quantity_text": model.stock_summary(part)["text"],
                 "notes": notes}
+
+    return ctx.store.transaction(mutate)
+
+
+def _use_location(inv, location):
+    """A location argument: a code, or "unassigned" (unless a location has that code) for the unassigned row."""
+    if location.lower() == "unassigned" and not model.find_location(inv, location):
+        return None
+    return _canonical_location(inv, location)
+
+
+def _use_result(inv, part, **extra):
+    return {"id": part["id"], **extra, "stock": [stock_out(inv, row) for row in part["stock"]],
+            "quantity_text": model.stock_summary(part)["text"], "uses": part["uses"]}
+
+
+@operation("use_part", "Use pieces in a project", "POST", "/api/parts/{id}/uses", obj({
+    "id": PART_ID,
+    "project": string("Project name, e.g. Weather station; reuse the spelling from get_schema → projects."),
+    "qty": {"type": "number", "minimum": 0, "description": "Pieces built into the project. Default 1."},
+    "from_location": {"type": ["string", "null"],
+                      "description": "Location code the pieces were taken from (its amount goes down; \"unassigned\" "
+                                     "= the unassigned row). null = they were not in stock."},
+    "note": string("Optional short note: where or how it is used, e.g. sensor on GPIO 4."),
+}, required=["id", "project", "from_location"]))
+def use_part(ctx, args):
+    """Marks pieces of a part as built into a project: they leave the stock at from_location and are listed in the
+    part's uses until return_part takes them back. More pieces for the same project add up; a note replaces the old
+    one."""
+    part_id = arg_str(args, "id", required=True)
+    project = model.normalize_project(arg_str(args, "project", required=True))
+    qty = arg_number(args, "qty")
+    qty = 1 if qty is None else qty
+    if qty <= 0:
+        raise InventoryError("'qty' must be positive.", 400, "invalid_arguments")
+    if "from_location" not in args:
+        raise InventoryError("'from_location' is required: the location code the pieces were taken from, or null "
+                             "when they were not in stock.", 400, "invalid_arguments")
+    source = arg_str(args, "from_location")
+    note = (arg_str(args, "note") or "")[:200]
+
+    def mutate(inv):
+        part = require_part(inv, part_id)
+        taken_from = None
+        if source is not None:
+            code = _use_location(inv, source)
+            row = _stock_row(part, code)
+            if row is None:
+                raise InventoryError(f"{part['name']} is not stored in {code or 'the unassigned row'}.", 409,
+                                     "insufficient_stock")
+            if row["qty"] is not None:
+                if qty > row["qty"]:
+                    raise InventoryError(f"Only {row['qty']} of {part['name']} in {code or 'unassigned'}; "
+                                         f"cannot take {qty}.", 409, "insufficient_stock")
+                row["qty"] = model.round_qty(row["qty"] - qty)
+            taken_from = row["location"] or "unassigned"
+        name = _project_name(inv, project)
+        use = next((item for item in part["uses"] if item["project"].lower() == name.lower()), None)
+        if use:
+            use["qty"] = None if use["qty"] is None else model.round_qty(use["qty"] + qty)
+            if note:
+                use["note"] = note
+        else:
+            use = {"project": name, "qty": qty, "note": note}
+            part["uses"].append(use)
+        part["updatedAt"] = model.now_iso()
+        return _use_result(inv, part, project=use["project"], in_project=use["qty"], taken_from=taken_from)
+
+    return ctx.store.transaction(mutate)
+
+
+@operation("return_part", "Return pieces from a project", "POST", "/api/parts/{id}/uses/return", obj({
+    "id": PART_ID,
+    "project": string("Project the pieces come out of (see the part's uses)."),
+    "qty": {"type": ["number", "null"], "minimum": 0, "description": "Pieces; omit or null for all of them."},
+    "to_location": {"type": ["string", "null"],
+                    "description": "Location code to put the pieces back into (\"unassigned\" = the unassigned row). "
+                                   "null = they do not go back to stock (used up, broken or given away)."},
+}, required=["id", "project", "to_location"]))
+def return_part(ctx, args):
+    """Takes pieces out of a project: back into the stock at to_location, or with to_location null just off the
+    project. The project disappears from the part's uses when no pieces are left in it."""
+    part_id = arg_str(args, "id", required=True)
+    project = arg_str(args, "project", required=True)
+    qty = arg_number(args, "qty")
+    if qty is not None and qty <= 0:
+        raise InventoryError("'qty' must be positive.", 400, "invalid_arguments")
+    if "to_location" not in args:
+        raise InventoryError("'to_location' is required: the location code to put the pieces back into, or null "
+                             "when they are used up.", 400, "invalid_arguments")
+    target = arg_str(args, "to_location")
+
+    def mutate(inv):
+        part = require_part(inv, part_id)
+        use = next((item for item in part["uses"] if item["project"].lower() == project.lower()), None)
+        if use is None:
+            known = ", ".join(item["project"] for item in part["uses"]) or "none"
+            raise InventoryError(f'{part["name"]} is not in use in "{project}". Its projects: {known}.', 409,
+                                 "not_in_use")
+        if qty is not None and use["qty"] is not None and qty > use["qty"]:
+            raise InventoryError(f"Only {use['qty']} of {part['name']} in use in {use['project']}.", 409,
+                                 "insufficient_stock")
+        amount = use["qty"] if qty is None else qty
+        if qty is None or (use["qty"] is not None and qty >= use["qty"]):
+            part["uses"].remove(use)
+        elif use["qty"] is not None:
+            use["qty"] = model.round_qty(use["qty"] - qty)
+        returned_to = None
+        notes = []
+        if target is not None:
+            code = _use_location(inv, target)
+            row = _stock_row(part, code)
+            if row is None:
+                part["stock"].append({"location": code, "qty": amount})
+            else:
+                row["qty"] = None if row["qty"] is None or amount is None else model.round_qty(row["qty"] + amount)
+            returned_to = code or "unassigned"
+            notes = model.ensure_references(inv, part, ctx.store.defaults)
+        part["updatedAt"] = model.now_iso()
+        return _use_result(inv, part, project=use["project"], returned=amount, returned_to=returned_to, notes=notes)
 
     return ctx.store.transaction(mutate)
 

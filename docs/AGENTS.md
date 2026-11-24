@@ -63,16 +63,18 @@ the web app uses in file mode):
 
 | Tool (MCP) | REST | Purpose |
 | --- | --- | --- |
-| `get_overview` | `GET /api/overview` | Counts per category, place and location, stock status, recent changes |
-| `get_schema` | `GET /api/schema` | Categories, properties (key, label, type, unit, options), locations, places |
+| `get_overview` | `GET /api/overview` | Counts per category, place, location and project, stock status, recent changes |
+| `get_schema` | `GET /api/schema` | Categories, properties (key, label, type, unit, options), locations, places, projects |
 | `search_parts` | `GET /api/parts` | Search and filter; returns summaries |
 | `get_part` | `GET /api/parts/{id}` | Full details, property labels, photo URLs (MCP: optionally the photo) |
 | `add_parts` | `POST /api/parts` | Add up to 200 parts; `image_urls` are downloaded |
 | `update_part` | `PATCH /api/parts/{id}` | Change fields; `specs` are merged, `null` removes a property |
 | `delete_part` | `DELETE /api/parts/{id}` | Remove a part (returns it) |
-| `adjust_stock` | `POST /api/parts/{id}/stock/adjust` | `{location, delta}` — e.g. `-2` when two were used |
+| `adjust_stock` | `POST /api/parts/{id}/stock/adjust` | `{location, delta}` — e.g. `-2` when two were used up |
 | `set_stock` | `PUT /api/parts/{id}/stock` | Replace all `{location, qty}` rows |
 | `move_stock` | `POST /api/parts/{id}/stock/move` | Move pieces between locations |
+| `use_part` | `POST /api/parts/{id}/uses` | Put pieces into a project: `{project, qty, from_location, note}` |
+| `return_part` | `POST /api/parts/{id}/uses/return` | Take pieces out of a project: `{project, qty, to_location}` |
 | `add_image` | `POST /api/parts/{id}/images` | Photo from `url` or `data_base64` (REST also: raw image body) |
 | `upsert_location` | `PUT /api/locations/{code}` | Create or edit a box (name, `place`, color, notes); `rename_to` updates all parts |
 | `delete_location` | `DELETE /api/locations/{code}?move_to=` | Remove a box, moving its stock |
@@ -87,7 +89,8 @@ Errors are returned as MCP tool results with `isError: true`, and by REST as
 `search_parts` arguments: `query` (all words must match name, ID numbers, description, notes, tags,
 property values or locations), `number` (exact ID number, e.g. `57` or `B-12`), `category`,
 `location` (`"none"` = unassigned), `place` (one or more places: parts with stock in any of them;
-REST: comma separated), `in_stock`, `tags`, `sort` (`name`, `number`, `updated`, `created`,
+REST: comma separated), `project` (one or more projects: parts in use in any of them), `in_use`
+(`true` = built into a project), `in_stock`, `tags`, `sort` (`name`, `number`, `updated`, `created`,
 `quantity`), `limit`, `offset` and `specs` — property conditions that must all match:
 
 | Condition | Meaning |
@@ -109,6 +112,18 @@ list) returns parts that have stock in any of them, and stock rows in results na
 their location, so "how many are in Place 2" is the sum of the rows with that place. Put a box into
 a place with `upsert_location {"code": "N1", "place": "Place 2"}`; a name differing only in case
 joins the existing place.
+
+### Projects
+
+Pieces built into a project are listed in the part's `uses` (`{project, qty, note}`), not in its
+`stock`, so the app shows that you have the part although it is not in a box. When pieces go into a
+project, call `use_part {"id": "…", "project": "Weather station", "qty": 1, "from_location": "A1",
+"note": "Outdoor sensor"}`: the amount at `A1` goes down (`from_location: null` when the pieces were
+not in stock). More pieces for the same project add up. `return_part {"id": "…", "project": "Weather
+station", "to_location": "A1"}` puts them back (`qty` omitted = all), and `to_location: null` takes
+them off the project when they are used up or broken. Reuse the names from `get_schema` → `projects`
+(a name differing only in case is the same project). `add_parts` and `update_part` accept `uses`
+directly, e.g. for a part that is already in a project.
 
 ### Adding parts
 

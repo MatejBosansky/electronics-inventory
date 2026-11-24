@@ -1,4 +1,4 @@
-# inventory.json — data format (version 3)
+# inventory.json — data format (version 4)
 
 The whole inventory is a single JSON document, `inventory.json`, stored in the data folder next to
 the `images/` folder. The app writes it pretty-printed (2 spaces) with a stable key order, so it
@@ -13,7 +13,7 @@ file that is not valid JSON (and offers to restore a snapshot instead).
 ```json
 {
   "format": "electronics-inventory",
-  "version": 3,
+  "version": 4,
   "updatedAt": "2026-01-15T18:30:00Z",
   "settings": { "title": "Electronics Inventory" },
   "fields": [ … ],
@@ -26,7 +26,7 @@ file that is not valid JSON (and offers to restore a snapshot instead).
 | Key | Description |
 | --- | --- |
 | `format` | Always `"electronics-inventory"`. |
-| `version` | Format version. The app refuses files with a newer version than it knows and saves older ones in the current version (2 added `place` to locations, 3 `numbers` to parts). |
+| `version` | Format version. The app refuses files with a newer version than it knows and saves older ones in the current version (2 added `place` to locations, 3 `numbers` and 4 `uses` to parts). |
 | `updatedAt` | Time of the last change (ISO 8601, UTC). |
 | `settings.title` | Name shown in the header. |
 | `fields` | Property definitions (see below). If missing, the defaults are used. |
@@ -95,6 +95,9 @@ only the parts in the places you choose. Names differing only in case are merged
     { "location": "A1", "qty": 2 },
     { "location": "K2", "qty": null }
   ],
+  "uses": [
+    { "project": "Weather station", "qty": 1, "note": "Reads the sensors and sends the values over Wi-Fi" }
+  ],
   "specs": {
     "mcu": "ESP32-C6",
     "wifi": "Wi-Fi 6 (2.4 GHz)",
@@ -121,6 +124,7 @@ only the parts in the places you choose. Names differing only in case are merged
 | `description` | Short description (one or two sentences). |
 | `tags` | Free keywords; searchable and filterable. |
 | `stock` | Where the part is and how many: `location` is a location code or `null` (unassigned), `qty` a number or `null` when unknown. The total quantity is the sum. An empty list means the part is not stored anywhere (out of stock). |
+| `uses` | Pieces built into projects: `project` is a short name (e.g. `"Weather station"`), `qty` a number (`null` = unknown) and `note` an optional short text where or how it is used. These pieces are not part of `stock`: using a part in the app moves pieces from a location into `uses`, returning them moves them back. Project names differing only in case are merged into the first spelling. |
 | `specs` | Property values by field key: strings, numbers, booleans or lists of strings (for `multi`). Keys without a field definition are shown as plain text. |
 | `images` | Photos, first one is the cover. `src` is a path inside the data folder (`images/…`) or an `http(s)` URL; `thumb` is optional (the list then uses `src`). |
 | `links` | Datasheets, shops, documentation: `{ "label", "url" }` with `http(s)` URLs. |

@@ -33,6 +33,9 @@ Inventory of electronic components (development boards, sensors, displays, modul
   their location.
 - Parts can have ID numbers written on their bags or labels ("57", "B-12"): search_parts number=57 finds the
   part; numbers are unique.
+- Pieces built into a project are listed in the part's uses {project, qty, note}, not in the stock: use_part
+  moves them out of a location into a project, return_part puts them back (or removes them when used up).
+  get_schema lists the project names; search_parts filters by project or in_use.
 - Before adding a part, search_parts for it; to record more pieces of an existing part use adjust_stock.
 - Property filters in search_parts: {"zigbee": true}, {"thread": "*"} (any value), {"bluetooth": ["5.0", "5.3"]},
   {"diagonal": {"min": 1}}. Thread and Bluetooth values are versions ("1.3", "5.3").

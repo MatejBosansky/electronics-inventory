@@ -35,7 +35,8 @@
       name: 'Raspberry Pi Pico W',
       category: 'dev-boards',
       description: 'RP2040 board with an Infineon CYW43439 wireless chip.',
-      stock: [{ location: 'A1', qty: 2 }],
+      stock: [{ location: 'A1', qty: 1 }],
+      uses: [{ project: 'Weather station', qty: 1, note: 'Reads the sensor and sends the values over Wi-Fi' }],
       specs: {
         mcu: 'RP2040', architecture: 'ARM Cortex-M0+', wifi: 'Wi-Fi 4 (2.4 GHz)', bluetooth: '5.2', usbConnector: 'Micro-USB',
         usbSerial: 'Native USB', flash: '2 MB', clock: 133, logicLevel: '3.3 V',
@@ -65,7 +66,8 @@
       name: 'nRF52840 USB dongle',
       category: 'dev-boards',
       description: 'Nordic nRF52840 in a USB stick — Bluetooth LE, Thread and Zigbee.',
-      stock: [{ location: 'A2', qty: 1 }],
+      stock: [{ location: 'A2', qty: 0 }],
+      uses: [{ project: 'Thread border router', qty: 1, note: 'Radio co-processor' }],
       specs: {
         mcu: 'nRF52840', architecture: 'ARM Cortex-M4', bluetooth: '5.0', thread: '1.3', zigbee: true, usbConnector: 'USB-A',
         usbSerial: 'Native USB', flash: '1 MB', logicLevel: '3.3 V',
@@ -76,7 +78,8 @@
       numbers: ['1'],
       category: 'sensors',
       description: 'Temperature, humidity and pressure sensor.',
-      stock: [{ location: 'A2', qty: 2 }],
+      stock: [{ location: 'A2', qty: 1 }],
+      uses: [{ project: 'Weather station', qty: 1, note: '' }],
       specs: { measures: ['Temperature', 'Humidity', 'Pressure'], chip: 'BME280', interfaces: ['I2C', 'SPI'], supplyVoltage: '3.3 V' },
     },
     {

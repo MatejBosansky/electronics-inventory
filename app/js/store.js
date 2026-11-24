@@ -240,6 +240,7 @@
     const now = U.nowIso();
     const part = S.normalizePart({ ...data, id, createdAt: createdAt || now, updatedAt: now });
     part.stock = S.mergeStock(part.stock);
+    part.uses = S.mergeUses(part.uses);
     return part;
   }
 
@@ -285,18 +286,121 @@
     });
   }
 
+  function draftPart(draft, id) {
+    const part = draft.parts.find((item) => item.id === id);
+    if (!part) throw new Error('This part no longer exists.');
+    return part;
+  }
+
+  /** Stock row of a part at a location code (null or '' = the unassigned row). */
+  function stockRow(part, location) {
+    const key = location ? location.toLowerCase() : '';
+    return part.stock.find((item) => (item.location ? item.location.toLowerCase() : '') === key) || null;
+  }
+
+  function useOf(part, project) {
+    const key = String(project || '').toLowerCase();
+    return part.uses.find((use) => use.project.toLowerCase() === key) || null;
+  }
+
   /** Changes the quantity at one location by `delta` (e.g. -1 when a part is used). */
   function adjustQuantity(id, location, delta) {
     return commit('quantity', (draft) => {
-      const part = draft.parts.find((item) => item.id === id);
-      if (!part) throw new Error('This part no longer exists.');
-      const key = location ? location.toLowerCase() : '';
-      const row = part.stock.find((item) => (item.location ? item.location.toLowerCase() : '') === key);
+      const part = draftPart(draft, id);
+      const row = stockRow(part, location);
       if (!row) throw new Error('This location is no longer listed for the part.');
       if (row.qty === null) throw new Error('The amount is unknown. Set it in the editor first.');
       row.qty = Math.max(0, U.roundQty(row.qty + delta));
       part.updatedAt = U.nowIso();
       return row.qty;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Projects: pieces built into a project are listed in `uses` instead of the stock.
+
+  /**
+   * Puts `qty` pieces into a project. With `takeFrom` they leave the stock at `location`
+   * (null = the unassigned row); a project of the same name gets the pieces added.
+   * Returns the project name as stored.
+   */
+  function useInProject(id, { project, qty, note = '', takeFrom = false, location = null }) {
+    return commit('use', (draft) => {
+      const part = draftPart(draft, id);
+      const name = S.projectByName(draft, project) || S.normalizeProject(project);
+      if (!name) throw new Error('Please enter a project.');
+      const amount = U.parseQty(qty);
+      if (!amount) throw new Error('Please enter how many pieces are used.');
+      if (takeFrom) {
+        const row = stockRow(part, location);
+        if (!row) throw new Error('This location is no longer listed for the part.');
+        if (row.qty !== null) {
+          if (amount > row.qty) throw new Error(`Only ${row.qty} in ${row.location || 'Unassigned'}.`);
+          row.qty = U.roundQty(row.qty - amount);
+        }
+      }
+      const text = String(note || '').trim().slice(0, 200);
+      const existing = useOf(part, name);
+      if (existing) {
+        existing.qty = existing.qty === null ? null : U.roundQty(existing.qty + amount);
+        if (text) existing.note = text;
+      } else {
+        part.uses.push({ project: name, qty: amount, note: text });
+      }
+      part.updatedAt = U.nowIso();
+      return name;
+    });
+  }
+
+  /**
+   * Takes `qty` pieces (empty = all of them) out of a project. With `putBack` they return to the
+   * stock at `location` (null = the unassigned row); otherwise they are gone (used up, broken).
+   * Returns the amount taken out (null when it was unknown).
+   */
+  function returnFromProject(id, { project, qty = null, putBack = true, location = null }) {
+    return commit('use-return', (draft) => {
+      const part = draftPart(draft, id);
+      const use = useOf(part, project);
+      if (!use) throw new Error(`This part is no longer in use in ${project}.`);
+      const all = qty === null || qty === undefined || String(qty).trim() === '';
+      const amount = all ? use.qty : U.parseQty(qty);
+      if (!all && !amount) throw new Error('Please enter how many pieces come back.');
+      if (!all && use.qty !== null && amount > use.qty) throw new Error(`Only ${use.qty} in use in ${use.project}.`);
+      if (all || (use.qty !== null && amount >= use.qty)) part.uses.splice(part.uses.indexOf(use), 1);
+      else if (use.qty !== null) use.qty = U.roundQty(use.qty - amount);
+      if (putBack) {
+        const row = stockRow(part, location);
+        if (!row) part.stock.push({ location: location || null, qty: amount });
+        else row.qty = row.qty === null || amount === null ? null : U.roundQty(row.qty + amount);
+        S.ensureReferences(draft, part);
+      }
+      part.updatedAt = U.nowIso();
+      return amount;
+    });
+  }
+
+  /** Changes a use (project, amount, note) without touching the stock; `data === null` removes it. */
+  function saveUse(id, project, data) {
+    return commit('use-edit', (draft) => {
+      const part = draftPart(draft, id);
+      const use = useOf(part, project);
+      if (!use) throw new Error(`This part is no longer in use in ${project}.`);
+      const index = part.uses.indexOf(use);
+      part.uses.splice(index, 1);
+      if (data === null) {
+        part.updatedAt = U.nowIso();
+        return null;
+      }
+      const name = S.projectByName(draft, data.project) || S.normalizeProject(data.project);
+      if (!name) throw new Error('Please enter a project.');
+      const qtyText = String(data.qty ?? '').trim();
+      const amount = U.parseQty(qtyText);
+      if (qtyText && qtyText !== '?' && amount === null) throw new Error(`“${qtyText}” is not a valid amount.`);
+      if (amount === 0) throw new Error('The amount must be more than 0. To take the part off the project, remove it.');
+      part.uses.splice(index, 0, { project: name, qty: amount, note: String(data.note || '').trim().slice(0, 200) });
+      part.uses = S.mergeUses(part.uses);
+      part.updatedAt = U.nowIso();
+      return name;
     });
   }
 
@@ -526,6 +630,9 @@
     deletePart,
     restorePart,
     adjustQuantity,
+    useInProject,
+    returnFromProject,
+    saveUse,
     updateSettings,
     saveLocation,
     deleteLocation,

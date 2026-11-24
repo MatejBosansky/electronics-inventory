@@ -12,6 +12,7 @@
   const LOCATION = '@location';
   const STOCK = '@stock';
   const TAGS = '@tags';
+  const PROJECT = '@project';
   const MAX_TEXT_VALUES = 40;
 
   const haystacks = new WeakMap();
@@ -31,6 +32,7 @@
       const location = S.locationByCode(inv, row.location);
       if (location) bits.push(location.code, location.name);
     }
+    for (const use of part.uses) bits.push(use.project, use.note);
     for (const link of part.links) bits.push(link.label);
     text = U.fold(bits.join(' \u0001 '));
     haystacks.set(part, text);
@@ -45,6 +47,7 @@
     }
     if (key === STOCK) return [S.inStock(part) ? 'in' : 'out'];
     if (key === TAGS) return part.tags;
+    if (key === PROJECT) return [...new Set(part.uses.map((use) => use.project))];
     const def = S.fieldDef(fields, key);
     const value = part.specs[key];
     if (def.type === 'bool') return [value === true ? 'Yes' : 'No'];
@@ -125,6 +128,8 @@
       return location && location.name !== location.code ? `${location.code} · ${location.name}` : value;
     }
     if (key === STOCK) return value === 'in' ? 'In stock' : 'Out of stock';
+    if (key === PROJECT && value === ANY) return 'Any project';
+    if (value === ANY) return 'Any';
     if (def && def.unit && def.type === 'number') return `${value} ${def.unit}`;
     return value;
   }
@@ -153,7 +158,7 @@
     const offerAny = def && def.type !== 'bool' && withValue > 0 && withValue < pool.length;
     if (options.length < 2 && !offerAny && !selected.size) return null;
     if (offerAny) {
-      options = [{ value: ANY, count: withValue, label: 'Any', selected: selected.has(ANY) }, ...options];
+      options = [{ value: ANY, count: withValue, label: optionLabel(inv, def, key, ANY), selected: selected.has(ANY) }, ...options];
     }
     return { key, label, type: def ? def.type : key, options, active: selected.size };
   }
@@ -245,6 +250,7 @@
       if (facet) facets.push(facet);
     };
     push(buildFacet(inv, fields, base, view.facets, STOCK, 'Stock', null));
+    push(buildFacet(inv, fields, base, view.facets, PROJECT, 'In use', { type: 'text' }));
     push(buildFacet(inv, fields, base, view.facets, LOCATION, 'Location', null));
     for (const key of facetKeys(inv, base, view.category)) {
       const def = S.fieldDef(fields, key);
@@ -259,9 +265,9 @@
     for (const [key, selected] of Object.entries(view.facets)) {
       if (!selected || !selected.size) continue;
       const def = key.startsWith('@') ? null : S.fieldDef(fields, key);
-      const label = key === LOCATION ? 'Location' : key === STOCK ? 'Stock' : key === TAGS ? 'Tag' : def.label;
+      const label = { [LOCATION]: 'Location', [STOCK]: 'Stock', [TAGS]: 'Tag', [PROJECT]: 'In use' }[key] || (def ? def.label : key);
       for (const value of selected) {
-        const valueLabel = value === ANY ? 'Any' : optionLabel(inv, def, key, value);
+        const valueLabel = optionLabel(inv, def, key, value);
         chips.push({ key, value, label: `${label}: ${valueLabel}` });
       }
     }
@@ -309,6 +315,6 @@
     return [...parts].sort(SORTS[sort] || SORTS.name);
   }
 
-  App.filters = { ANY, NONE, LOCATION, STOCK, TAGS, apply, activePlaces, inPlaces, countByCategory,
+  App.filters = { ANY, NONE, LOCATION, STOCK, TAGS, PROJECT, apply, activePlaces, inPlaces, countByCategory,
     countByPlace, sortParts, SORT_LABELS };
 })(window.App = window.App || {});
