@@ -68,6 +68,7 @@
     inv = null;
     version = null;
     snapshotDay = null;
+    queue = Promise.resolve(); // a read that hangs on the previous storage must not block this one
     await enqueue(load);
   }
 
@@ -81,7 +82,9 @@
   }
 
   async function load() {
-    const result = await fs.readText(INVENTORY);
+    const target = fs;
+    const result = await target.readText(INVENTORY);
+    if (fs !== target) return; // another storage was opened meanwhile
     if (result) {
       inv = parseInventory(result.text);
       version = result.version;

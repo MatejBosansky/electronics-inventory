@@ -45,6 +45,9 @@
     settingsTab: 'general',
     error: null,
     reconnectHandle: null,
+    bootStep: 'storage', // what the loading screen waits for: 'storage' (the choice on this device) or 'read'
+    bootDetail: '',
+    bootSlow: false,
   };
   App.state = state;
 
@@ -233,14 +236,33 @@
     if (!pollTimer) pollTimer = setInterval(poll, POLL_MS);
   }
 
-  async function openStorage(fs) {
+  const SLOW_BOOT_MS = 8000;
+  let slowTimer = 0;
+
+  /** Shows the loading screen; when it takes long, it says what it waits for and offers a way out. */
+  function showBoot(step, detail = '') {
     state.view = 'boot';
+    state.bootStep = step;
+    state.bootDetail = detail;
+    state.bootSlow = false;
+    clearTimeout(slowTimer);
+    slowTimer = setTimeout(() => {
+      if (state.view !== 'boot' || state.bootStep !== step) return;
+      state.bootSlow = true;
+      render();
+    }, SLOW_BOOT_MS);
     render();
+  }
+
+  async function openStorage(fs) {
+    showBoot('read', fs.detail);
     try {
       await App.store.open(fs);
+      if (App.store.fs !== fs) return; // another storage was chosen meanwhile
       state.error = null;
       enterInventory();
     } catch (err) {
+      if (App.store.fs !== fs) return;
       console.error(err);
       state.error = err;
       state.view = 'error';
@@ -391,6 +413,9 @@
       await App.storage.forgetLocal();
       showStart();
     },
+    'reload-page'() {
+      window.location.reload();
+    },
     'retry-load'() {
       if (App.store.fs) openStorage(App.store.fs);
       else window.location.reload();
@@ -417,7 +442,7 @@
       document.head.appendChild(link);
     }
     bindEvents();
-    render();
+    showBoot('storage');
 
     const server = await App.storage.detectServer();
     if (server) {
@@ -430,6 +455,7 @@
     } catch (err) {
       console.warn('Could not restore the local storage choice', err);
     }
+    if (state.view !== 'boot' || state.bootStep !== 'storage') return; // the user chose storage meanwhile
     if (local && local.fs) {
       await openStorage(local.fs);
     } else if (local && local.handle) {

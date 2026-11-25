@@ -53,6 +53,15 @@
     });
   }
 
+  /** The promise's value, or `fallback` when it has not settled after `ms` (e.g. browser storage that hangs). */
+  function within(promise, ms, fallback) {
+    let timer;
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(fallback), ms);
+    });
+    return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+  }
+
   const kv = {
     get: (key) => idb('kv', 'readonly', (store) => store.get(key)),
     set: (key, value) => idb('kv', 'readwrite', (store) => store.put(value, key)),
@@ -410,9 +419,10 @@
     const pref = preference();
     if (pref === 'browser') return { fs: new BrowserFS() };
     if (pref === 'folder' && folderSupported) {
-      const handle = await kv.get(FOLDER_HANDLE_KEY).catch(() => null);
+      // A stuck browser storage must not keep the app on the loading screen: the folder can be picked again.
+      const handle = await within(kv.get(FOLDER_HANDLE_KEY).catch(() => null), 5000, null);
       if (!handle) return null;
-      const state = await handle.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt');
+      const state = await within(handle.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt'), 5000, 'prompt');
       return state === 'granted' ? { fs: new FolderFS(handle) } : { handle };
     }
     return null;
@@ -430,7 +440,7 @@
   async function pickFolder() {
     if (!folderSupported) throw new Error('This browser cannot open folders. Use Chrome or Edge, or browser storage.');
     const handle = await window.showDirectoryPicker({ id: 'electronics-inventory', mode: 'readwrite' });
-    await kv.set(FOLDER_HANDLE_KEY, handle).catch(() => {});
+    await within(kv.set(FOLDER_HANDLE_KEY, handle).catch(() => {}), 3000);
     setPreference('folder');
     return new FolderFS(handle);
   }
@@ -445,7 +455,7 @@
   /** Forgets the local choice so the start screen is shown again (data is not deleted). */
   async function forgetLocal() {
     setPreference(null);
-    await kv.delete(FOLDER_HANDLE_KEY).catch(() => {});
+    await within(kv.delete(FOLDER_HANDLE_KEY).catch(() => {}), 3000);
   }
 
   App.storage = {

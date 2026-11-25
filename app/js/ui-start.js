@@ -7,8 +7,28 @@
   const icon = App.icon;
   const esc = U.esc;
 
-  function bootHtml() {
-    return '<div class="start"><div class="start__loading"><span class="spinner"></span><span>Loading inventory…</span></div></div>';
+  function bootHtml(state) {
+    const loading = '<div class="start__loading"><span class="spinner"></span><span>Loading inventory…</span></div>';
+    if (!state.bootSlow) return `<div class="start">${loading}</div>`;
+    const reading = state.bootStep === 'read';
+    return `
+      <div class="start">
+        <div class="start__card">
+          ${loading}
+          <h1 class="start__title">This takes longer than usual</h1>
+          <p class="muted">${reading
+            ? `The browser has not returned inventory.json yet${state.bootDetail ? ` (${esc(state.bootDetail)})` : ''}.`
+            : 'The browser has not returned the storage chosen on this device yet.'}</p>
+          <p class="muted small">${reading
+            ? 'Opening the data folder again usually helps.'
+            : 'If the app is open in another tab or window, close it and reload. You can also open the data folder again.'}</p>
+          <div class="start__actions">
+            <button type="button" class="btn btn--primary" data-action="reload-page">${icon('refresh')}<span>Reload</span></button>
+            ${App.storage.folderSupported ? `<button type="button" class="btn" data-action="storage-folder">${icon('folder')}<span>Open the data folder again</span></button>` : ''}
+            <button type="button" class="btn" data-action="storage-forget">Choose other storage</button>
+          </div>
+        </div>
+      </div>`;
   }
 
   function welcomeHtml() {
@@ -90,7 +110,7 @@
     else if (state.view === 'error') {
       main.innerHTML = errorHtml(state);
       App.settingsView.loadSnapshots(main);
-    } else main.innerHTML = bootHtml();
+    } else main.innerHTML = bootHtml(state);
   }
 
   App.start = { render };
