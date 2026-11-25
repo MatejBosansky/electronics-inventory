@@ -483,7 +483,9 @@
       }
       const taken = new Set(draft.categories.map((cat) => cat.id));
       const id = U.uniqueId(U.slugify(name) || 'category', taken);
-      draft.categories.push({ id, name, icon: data.icon || 'shapes', fields });
+      // New categories go before "Other", which stays the catch-all at the end.
+      const other = draft.categories.findIndex((cat) => cat.id === S.FALLBACK_CATEGORY);
+      draft.categories.splice(other < 0 ? draft.categories.length : other, 0, { id, name, icon: data.icon || 'shapes', fields });
       return id;
     });
   }

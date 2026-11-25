@@ -79,7 +79,7 @@ the web app uses in file mode):
 | `upsert_location` | `PUT /api/locations/{code}` | Create or edit a box (name, `place`, color, notes); `rename_to` updates all parts |
 | `delete_location` | `DELETE /api/locations/{code}?move_to=` | Remove a box, moving its stock |
 | `upsert_field` | `POST /api/fields` | Define a property and add it to categories |
-| `upsert_category` | `POST /api/categories` | Create or edit a category |
+| `upsert_category` | `POST /api/categories` | Create or edit a category (new ones go before `other`) |
 
 Errors are returned as MCP tool results with `isError: true`, and by REST as
 `{"error": {"code", "message"}}` with an HTTP status (400, 404, 409, …).

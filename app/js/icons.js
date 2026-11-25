@@ -61,6 +61,8 @@
     resistor: '<path d="M2.5 12H6l1.5-3.5 3 7 3-7 3 7 1.5-3.5h3.5"/>',
     plug: '<path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 17v4"/>',
     usb: '<circle cx="12" cy="19.5" r="1.8"/><path d="M12 17.7V4M9.5 6.5 12 4l2.5 2.5M12 14.5 8 12V9.5M12 12.5l4-2V8"/><rect x="14.8" y="5.6" width="2.4" height="2.4"/><circle cx="8" cy="8.3" r="1.2"/>',
+    hub: '<rect x="6" y="7.5" width="15.5" height="9" rx="2"/><path d="M2.5 12H6M9.5 12h2M13.5 12h2M17.5 12h1"/>',
+    droplet: '<path d="M12 3.5c-3.3 4.1-5.5 7.3-5.5 10.3a5.5 5.5 0 0 0 11 0c0-3-2.2-6.2-5.5-10.3z"/><path d="M9.3 14.3a2.8 2.8 0 0 0 2.4 2.6"/>',
     wrench: '<path d="M14.5 4.5a4.5 4.5 0 0 0-5.3 6l-5.7 5.7a2 2 0 0 0 2.8 2.8l5.7-5.7a4.5 4.5 0 0 0 6-5.3l-2.7 2.7-2.6-.6-.6-2.6z"/>',
     nut: '<path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4z"/><circle cx="12" cy="12" r="3.2"/>',
     shapes: '<circle cx="7.5" cy="7.5" r="3.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><path d="m7.5 13.5 4 6.5h-8z"/><circle cx="16.5" cy="16.5" r="3.5"/>',
@@ -69,7 +71,7 @@
   /** Icons offered for categories in the settings. */
   const CATEGORY_ICONS = [
     'board', 'wireless', 'sensor', 'display', 'power', 'motor', 'switch', 'led', 'audio',
-    'input', 'chip', 'transistor', 'resistor', 'plug', 'usb', 'wrench', 'nut', 'shapes', 'box',
+    'input', 'chip', 'transistor', 'resistor', 'plug', 'usb', 'hub', 'wrench', 'nut', 'droplet', 'shapes', 'box',
   ];
 
   function icon(name, className = '') {

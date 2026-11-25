@@ -17,7 +17,7 @@ LOCATION_COLORS = [
 ]
 CATEGORY_ICONS = [
     "board", "wireless", "sensor", "display", "power", "motor", "switch", "led", "audio",
-    "input", "chip", "transistor", "resistor", "plug", "usb", "wrench", "nut", "shapes", "box",
+    "input", "chip", "transistor", "resistor", "plug", "usb", "hub", "wrench", "nut", "droplet", "shapes", "box",
 ]
 SORTS = ("name", "number", "updated", "created", "quantity")
 
@@ -1289,7 +1289,8 @@ def upsert_field(ctx, args):
                "description": "Property keys used by this category, in display order (replaces the list)."},
 }), idempotent=True)
 def upsert_category(ctx, args):
-    """Creates a category or changes its name, icon or list of properties."""
+    """Creates a category or changes its name, icon or list of properties. New categories are placed before
+    'other', which stays the catch-all at the end."""
     category_id = arg_str(args, "id")
     keys = arg_list(args, "fields")
 
@@ -1318,7 +1319,8 @@ def upsert_category(ctx, args):
             raise InventoryError(f'Category "{new_id}" already exists.', 409, "conflict")
         category = model.normalize_category({"id": new_id, "name": name, "icon": args.get("icon") or "shapes",
                                              "fields": keys or []})
-        inv["categories"].append(category)
+        other = next((i for i, cat in enumerate(inv["categories"]) if cat["id"] == model.FALLBACK_CATEGORY), None)
+        inv["categories"].insert(len(inv["categories"]) if other is None else other, category)
         return {"category": category, "created": True}
 
     return ctx.store.transaction(mutate)
